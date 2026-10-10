@@ -50,6 +50,15 @@ test("l'ordre de chargement des tuiles ne change rien", async () => {
 function minutes(P, mode, lonlat, limite, depart) {
   const G = C.construireGraphe(P, mode);
   let acc = C.accrocher(P, G, ...lonlat);
+  if (!acc && depart === undefined) {
+    // Rien d'accrochable à portée (mode pistes à Saint-Pierre) : nœud accrochable le plus proche, sans limite
+    let best = -1, dmin = Infinity;
+    for (let v = 0; v < P.n; v++) if (G.accrochable[v]) {
+      const d = C.distanceM(lonlat[0], lonlat[1], P.lon[v], P.lat[v]);
+      if (d < dmin) { dmin = d; best = v; }
+    }
+    acc = { noeud: best, distM: dmin };
+  }
   if (depart !== undefined) {
     const v = P.idGlobal(depart);
     acc = { noeud: v, distM: C.distanceM(lonlat[0], lonlat[1], P.lon[v], P.lat[v]) };
@@ -70,7 +79,7 @@ test("fenêtre 3 × 3 = graphe complet sous 30 min (invariant de marge : 30 min 
     // Même nœud de départ dans les deux graphes : en mode pistes, la taille des morceaux (accrochage) se
     // compte dans la fenêtre chargée et peut différer ; on teste ici le recollage et le Dijkstra.
     const F = minutes(PF, mode, SAINT_PIERRE, 1800);
-    const W = minutes(PW, mode, SAINT_PIERRE, 1800, PF.global[C.accrocher(PF, F.G, ...SAINT_PIERRE).noeud]);
+    const W = minutes(PW, mode, SAINT_PIERRE, 1800, PF.global[F.res.src]);
     // Nœuds : même temps, identifiés par leur numéro global
     const tempsF = new Map();
     for (let v = 0; v < PF.n; v++) if (isFinite(F.res.dist[v])) tempsF.set(PF.global[v], F.res.dist[v]);
