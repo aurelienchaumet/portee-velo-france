@@ -97,3 +97,15 @@ test("Dijkstra borné : temps identiques sous la borne, rien au-delà", async ()
   }
   assert.ok(sous > 10000 && sous < P.n, `${sous} nœuds sous 60 min sur ${P.n}`);
 });
+
+test("surface atteinte en km² : aire de la grille à cos φ près, croissante avec le seuil", async () => {
+  const P = C.recollerTuiles(await chargerTout());
+  const g = P.grille, N = g.nx * g.ny;
+  const tout = C.surfaceKm2(P, new Float32Array(N).fill(0), [0])[0];        // toutes les cellules de terre « atteintes »
+  let terre = 0; for (let k = 0; k < N; k++) terre += g.ile[k];
+  const aireMoy = tout / terre;                                             // ≈ 0,0111 km × 0,1 km × cos(46°)
+  assert.ok(Math.abs(aireMoy - 0.1001 * 0.0967) < 0.0005, `aire moyenne ${aireMoy}`);
+  const { min } = minutes(P, "tout", SAINT_PIERRE, 3600);
+  const [s15, s30, s45] = C.surfaceKm2(P, min, [15, 30, 45]);
+  assert.ok(s15 > 0 && s15 < s30 && s30 < s45, `${s15} < ${s30} < ${s45}`);
+});

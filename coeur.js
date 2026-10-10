@@ -201,6 +201,22 @@ function couverture(P, minutes, seuils) {
   return compte.map(c => (total ? c / total : 0));
 }
 
+// Surface (km²) des cellules comptées (g.ile) atteintes sous chaque seuil. Grille en degrés : l'aire d'une
+// cellule dépend de la latitude de sa ligne (cos φ) ; c'est le score de la version France (km² terrestres).
+function surfaceKm2(P, minutes, seuils) {
+  const g = P.grille, kmLat = g.dlat * RAD * R_TERRE / 1000, kmLon = g.dlon * RAD * R_TERRE / 1000;
+  const surf = seuils.map(() => 0);
+  for (let j = 0; j < g.ny; j++) {
+    const aire = kmLat * kmLon * Math.cos((g.n - (j + 0.5) * g.dlat) * RAD);
+    for (let i = 0, k = j * g.nx; i < g.nx; i++, k++) {
+      if (!g.ile[k]) continue;
+      const m = minutes[k];
+      for (let s = 0; s < seuils.length; s++) if (m <= seuils[s]) surf[s] += aire;
+    }
+  }
+  return surf;
+}
+
 // Champ continu pour les isolignes : les cellules hors réseau ou en mer reçoivent la valeur
 // de la cellule atteinte la plus proche (propagation en largeur), puis on masque au tracé.
 function champIsolignes(P, minutes) {
@@ -430,6 +446,6 @@ class ChargeurTuiles {
 
 if (typeof module !== "undefined") {
   module.exports = { CFG, preparer, construireGraphe, dijkstra, accrocher, tempsGrille, itineraire, etapes, couverture, champIsolignes, accesSecondes, distanceM,
-    GRILLE_FRANCE, decompresserTuile, decoderTuile, recollerTuiles, ChargeurTuiles };
+    surfaceKm2, GRILLE_FRANCE, decompresserTuile, decoderTuile, recollerTuiles, ChargeurTuiles };
 }
 // ===================================== FIN CŒUR =====================================

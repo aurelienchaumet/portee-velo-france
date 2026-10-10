@@ -213,6 +213,30 @@ class MasqueTerre:
         return shapely.contains_xy(sol, clon, clat)
 
 
+def ecrire_contour_departement(con, parquets, code, marge_km, sortie):
+    """Contour OSM du département (boundary=administrative, admin_level=6, ref=code) : écrit contour.json
+    (GeoJSON simplifié, pour la page : limite du survol) et renvoie l'emprise élargie de marge_km."""
+    for parquet in parquets:
+        r = con.execute("""
+            SELECT tags['name'], ST_AsWKB(geometry) FROM read_parquet(?)
+            WHERE tags['boundary'] = 'administrative' AND tags['admin_level'] = '6' AND tags['ref'] = ?
+              AND ST_GeometryType(geometry) IN ('POLYGON', 'MULTIPOLYGON')""", [str(parquet), code]).fetchone()
+        if r:
+            break
+    else:
+        sys.exit(f"département {code} absent des GeoParquet fournis")
+    nom, geom = r[0], shapely.from_wkb(bytes(r[1]))
+    sortie.mkdir(parents=True, exist_ok=True)
+    simple = shapely.simplify(geom, 0.0005)                  # ~50 m : assez pour tester « dans le département »
+    (sortie / "contour.json").write_text(json.dumps({"code": code, "nom": nom, "geometrie": shapely.geometry.mapping(simple)},
+                                                    ensure_ascii=False), "utf-8")
+    w, s, e, n = geom.bounds
+    dlat = marge_km / 111.32
+    dlon = marge_km / (111.32 * math.cos(math.radians((s + n) / 2)))
+    print(f"Département {code} ({nom}) : contour écrit, emprise élargie de {marge_km:g} km")
+    return (w - dlon, s - dlat, e + dlon, n + dlat)
+
+
 def ecrire_controle(chemin, n, a, b, l_dm, attr):
     """Empreinte du graphe avant découpage : le recollage de toutes les tuiles doit la retrouver à l'identique.
 
@@ -227,12 +251,19 @@ def ecrire_controle(chemin, n, a, b, l_dm, attr):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--parquet", action="append", required=True, help="GeoParquet produit par extraire.py (répétable)")
-    ap.add_argument("--emprise", action="append", required=True, help="lon_min,lat_min,lon_max,lat_max (répétable)")
+    ap.add_argument("--emprise", action="append", default=[], help="lon_min,lat_min,lon_max,lat_max (répétable)")
+    ap.add_argument("--departement", help="code du département (ex. 17) : emprise = contour OSM + marge, contour écrit dans la sortie")
+    ap.add_argument("--marge-km", type=float, default=25, help="marge autour du département (défaut 25 km)")
     ap.add_argument("--sortie", default="tuiles", help="dossier des tuiles")
     ap.add_argument("--controle", help="écrit l'empreinte du graphe complet (test de recollage sans perte)")
     args = ap.parse_args()
     t0 = time.time()
     emprises = [tuple(float(v) for v in e.split(",")) for e in args.emprise]
+    con = connecter()
+    if args.departement:
+        emprises.append(ecrire_contour_departement(con, args.parquet, args.departement, args.marge_km, Path(args.sortie)))
+    if not emprises:
+        ap.error("--emprise ou --departement requis")
     tuiles = tuiles_des_emprises(emprises)
     # Les voies sont lues sur toute l'étendue des tuiles (pas seulement l'emprise demandée) : sinon le
     # bord des tuiles reste sans réseau et ses cellules tombent « hors d'atteinte »
@@ -242,7 +273,6 @@ def main():
                 for w, s, e, n in emprises]
     groupe = groupes_de_tuiles(tuiles)
     print(f"{len(tuiles)} tuiles, {max(groupe.values()) + 1} zone(s)")
-    con = connecter()
     vers_l93 = Transformer.from_crs(4326, 2154, always_xy=True)
 
     # 1-3. Voies, nœuds, arêtes
