@@ -283,6 +283,19 @@ document.getElementById("replier").addEventListener("click", e => {
   carte.options.maxBoundsViscosity = 1;
 
   let toile = null, ctx = null, image = null, chaleur = null;
+  // Calque Leaflet qui affiche directement un <canvas> (au lieu d'une image PNG) : à chaque image du survol,
+  // on écrit les pixels et c'est affiché, sans encodage toDataURL ni décodage par le navigateur (le goulot
+  // d'étranglement mesuré : le calcul ne prend que ~8 ms). Leaflet le place et le met à l'échelle comme une image.
+  const CalqueCanvas = L.ImageOverlay.extend({
+    _initImage() {
+      const el = this._image = this._url;
+      L.DomUtil.addClass(el, "leaflet-image-layer");
+      if (this._zoomAnimated) L.DomUtil.addClass(el, "leaflet-zoom-animated");
+      el.onselectstart = L.Util.falseFn;
+      el.onmousemove = L.Util.falseFn;
+      this._updateOpacity();
+    },
+  });
   const iso = L.layerGroup().addTo(carte);
   const reseau = L.layerGroup();
   const trace = L.layerGroup().addTo(carte);
@@ -300,13 +313,14 @@ document.getElementById("replier").addEventListener("click", e => {
     vue.G = { tout: construireGraphe(f.P, "tout"), amenage: construireGraphe(f.P, "amenage") };
     const g = vue.g, bornes = L.latLngBounds([g.n - g.ny * g.dlat, g.w], [g.n, g.w + g.nx * g.dlon]);
     if (!toile || toile.width !== g.nx || toile.height !== g.ny) {
+      // Nouvelle taille de fenêtre (bord de la zone tuilée) : nouveau canvas, donc nouveau calque
       toile = document.createElement("canvas");
       toile.width = g.nx; toile.height = g.ny;
       ctx = toile.getContext("2d");
       image = ctx.createImageData(g.nx, g.ny);
-    }
-    if (chaleur) chaleur.setBounds(bornes);
-    else chaleur = L.imageOverlay(toile.toDataURL(), bornes, { pane: "chaleur", opacity: .78, interactive: false }).addTo(carte);
+      if (chaleur) chaleur.remove();
+      chaleur = new CalqueCanvas(toile, bornes, { pane: "chaleur", opacity: .78, interactive: false }).addTo(carte);
+    } else chaleur.setBounds(bornes);
     // Réseau cyclable de la fenêtre par-dessus la chaleur : trait blanc fin (pistes), tirets (bandes)
     reseau.clearLayers();
     const rendu = L.canvas({ pane: "reseau", padding: 0.3 }), segments = [[], []], P = vue.P;
@@ -332,8 +346,7 @@ document.getElementById("replier").addEventListener("click", e => {
       const [r, v, b] = RGB[c];
       px[o] = r; px[o + 1] = v; px[o + 2] = b; px[o + 3] = 255;
     }
-    ctx.putImageData(image, 0, 0);
-    chaleur.setUrl(toile.toDataURL());
+    ctx.putImageData(image, 0, 0);                 // affiché tel quel par CalqueCanvas
   }
 
   function dessinerIsolignes(min) {
