@@ -15,6 +15,7 @@ import sys
 from pathlib import Path
 
 import shapely
+import shapely.geometry
 
 ICI = Path(__file__).resolve().parent
 sys.path[:0] = [str(ICI)]
@@ -23,6 +24,7 @@ from tuiler import connecter  # noqa: E402  (extension spatial sur D:)
 COG = ICI / "cache" / "v_departement.csv"
 PARQUETS = str(ICI / "cache" / "regions" / "*.parquet")
 SORTIE = ICI / "chefs_lieux.json"
+CONTOURS = ICI / "tuiles" / "departements.json"
 
 
 def choisir_mairie(candidats):
@@ -79,6 +81,34 @@ def main():
                          "lon": round(pt.x, 6), "lat": round(pt.y, 6), "choix": raison, "candidats": len(candidats)})
         print(f"{d['DEP']:>3} {nom:<26} {len(candidats):>2} → {raison}")
     SORTIE.write_text(json.dumps(resultat, ensure_ascii=False, indent=1), "utf-8")
+
+    # Contours des départements pour la carte de France (choroplèthe) : simplifiés à ~500 m, 4 décimales
+    entites = []
+    for code, nom, wkb in con.execute(f"""
+        SELECT DISTINCT ON (tags['ref']) tags['ref'], tags['name'], ST_AsWKB(geometry) FROM read_parquet('{PARQUETS}')
+        WHERE tags['boundary'] = 'administrative' AND tags['admin_level'] = '6'
+          AND list_contains(?, tags['ref']) AND ST_GeometryType(geometry) IN ('POLYGON', 'MULTIPOLYGON')""",
+            [[d["DEP"] for d in deps]]).fetchall():
+        g = shapely.set_precision(shapely.simplify(shapely.from_wkb(bytes(wkb)), 0.005), 0.0001)
+        entites.append({"type": "Feature", "properties": {"dep": code, "nom": nom}, "geometry": shapely.geometry.mapping(g)})
+    # Départements sans polygone OSM exploitable (Rhône au niveau 5 depuis la Métropole de Lyon ;
+    # Loire-Atlantique, Marne : relation non reconstruite par QuackOSM) : union de leurs communes
+    presents = {e["properties"]["dep"] for e in entites}
+    for d in deps:
+        if d["DEP"] in presents:
+            continue
+        communes_dep = [shapely.from_wkb(bytes(r[0])) for r in con.execute(f"""
+            SELECT ST_AsWKB(geometry) FROM read_parquet('{PARQUETS}')
+            WHERE tags['boundary'] = 'administrative' AND tags['admin_level'] = '8' AND starts_with(tags['ref:INSEE'], ?)
+              AND ST_GeometryType(geometry) IN ('POLYGON', 'MULTIPOLYGON')""", [d["DEP"]]).fetchall()]
+        if not communes_dep:
+            print(f"✖ contour du {d['DEP']} introuvable")
+            continue
+        g = shapely.set_precision(shapely.simplify(shapely.union_all(shapely.make_valid(communes_dep)), 0.005), 0.0001)
+        entites.append({"type": "Feature", "properties": {"dep": d["DEP"], "nom": d["LIBELLE"]}, "geometry": shapely.geometry.mapping(g)})
+        print(f"  contour du {d['DEP']} reconstitué à partir de {len(communes_dep)} communes")
+    CONTOURS.write_text(json.dumps({"type": "FeatureCollection", "features": entites}, ensure_ascii=False, separators=(",", ":")), "utf-8")
+    print(f"Écrit : {CONTOURS.name}, {len(entites)} contours, {CONTOURS.stat().st_size / 1024:.0f} Ko")
     print(f"Écrit : {SORTIE.name}, {len(resultat)} chefs-lieux sur {len(deps)} départements")
 
 

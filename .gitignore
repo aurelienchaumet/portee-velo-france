@@ -4,3 +4,4 @@ cache/
 *.parquet
 .venv/
 __pycache__/
+CLAUDE.md
