@@ -113,27 +113,35 @@ function dijkstra(G, src, t0, limite = Infinity) {
   return { dist, pred, src };
 }
 
-// Nœud actif le plus proche d'un point (cellule de la grille + voisines, sinon recherche complète)
+// Nœud actif le plus proche d'un point, cherché par anneaux de cellules autour du point (chaque cellule
+// connaît son nœud le plus proche), sans dépasser CFG.accesMaxM du mode : au-delà, null (« aucune voie »).
+// Coût borné (~1 800 cellules au pire) quelle que soit la taille du graphe ; l'ancienne version
+// parcourait tous les nœuds dès que les 3 × 3 cellules voisines étaient vides (mer, grands champs).
 function accrocher(P, G, lon, lat) {
-  const g = P.grille, pro = g.pro[G.mode];
+  const g = P.grille, pro = g.pro[G.mode], max = CFG.accesMaxM[G.mode];
   const i0 = Math.floor((lon - g.w) / g.dlon), j0 = Math.floor((g.n - lat) / g.dlat);
+  // Taille d'une cellule en mètres (la plus petite des deux dimensions) → nombre d'anneaux pour couvrir max
+  const cote = Math.min(g.dlat * RAD * R_TERRE, g.dlon * RAD * R_TERRE * Math.cos(lat * RAD));
+  const anneaux = Math.ceil(max / cote) + 1;
   let meilleur = -1, dMin = Infinity;
-  for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
-    const i = i0 + di, j = j0 + dj;
-    if (i < 0 || j < 0 || i >= g.nx || j >= g.ny) continue;
+  const essayer = (i, j) => {
+    if (i < 0 || j < 0 || i >= g.nx || j >= g.ny) return;
     const v = pro[j * g.nx + i];
-    if (v < 0 || !G.actif[v]) continue;
+    if (v < 0 || !G.actif[v]) return;
     const d = distanceM(lon, lat, P.lon[v], P.lat[v]);
     if (d < dMin) { dMin = d; meilleur = v; }
-  }
-  if (meilleur < 0) {
-    for (let v = 0; v < P.n; v++) {
-      if (!G.actif[v]) continue;
-      const d = distanceM(lon, lat, P.lon[v], P.lat[v]);
-      if (d < dMin) { dMin = d; meilleur = v; }
+  };
+  for (let r = 0; r <= anneaux; r++) {
+    // Un nœud trouvé à dMin ne peut être battu que par une cellule à moins de dMin : on arrête
+    // dès que l'anneau est plus loin que le meilleur candidat (plus une cellule de marge)
+    if ((r - 1) * cote > dMin) break;
+    if (r === 0) { essayer(i0, j0); continue; }
+    for (let k = -r; k <= r; k++) {
+      essayer(i0 + k, j0 - r); essayer(i0 + k, j0 + r);
+      if (k > -r && k < r) { essayer(i0 - r, j0 + k); essayer(i0 + r, j0 + k); }
     }
   }
-  return meilleur < 0 ? null : { noeud: meilleur, distM: dMin };
+  return meilleur < 0 || dMin > max ? null : { noeud: meilleur, distM: dMin };
 }
 
 // Minutes par cellule : NaN hors zone de calcul, Infinity si hors d'atteinte

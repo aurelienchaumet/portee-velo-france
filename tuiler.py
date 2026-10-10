@@ -45,7 +45,8 @@ DOSSIER_EXT_DUCKDB = ICI / "cache" / "duckdb_ext"     # extensions DuckDB sur D:
 TERRE_ZIP = ICI / "cache" / "land-polygons-split-4326.zip"
 TERRE_SHP = "/vsizip/{}/land-polygons-split-4326/land_polygons.shp"
 SEGMENT_MAX_M = 2000           # au-delà, le segment est découpé (champ l en Uint16 dm, contre-sens à 5 km/h)
-EAU_MIN_M2 = 10_000            # plans d'eau de plus de 1 ha retirés de la terre
+EAU_MIN_M2 = 10_000
+MER_PRO_MAX_M = 300            # cellule en mer : garde son nœud s'il est à moins de 300 m (ponts, jetées)            # plans d'eau de plus de 1 ha retirés de la terre
 CARRE_TRI_DEG = (0.0125, 0.009)  # carré de ~1 km pour l'ordre spatial des nœuds dans une tuile
 M_PAR_DEG = 111_320
 
@@ -301,9 +302,11 @@ def main():
             p_amen = amen[p_amen]
         else:
             d_amen, p_amen = np.full(len(cx), np.inf), np.full(len(cx), -1)
-        # Cellules en mer : aucun nœud (allège la tuile ; tempsGrille les ignore de toute façon)
-        p_tout = np.where(terre, p_tout, -1)
-        p_amen = np.where(terre, p_amen, -1)
+        # Cellules en mer : aucun nœud (allège la tuile ; tempsGrille les ignore de toute façon), sauf à moins
+        # de MER_PRO_MAX_M d'un nœud : sinon un pont ou une jetée n'est le nœud d'aucune cellule et
+        # accrocher() ne peut pas s'y raccrocher (curseur sur le pont d'Oléron accroché à la côte à 800 m)
+        p_tout = np.where(terre | (d_tout <= MER_PRO_MAX_M), p_tout, -1)
+        p_amen = np.where(terre | (d_amen <= MER_PRO_MAX_M), p_amen, -1)
         t = {
             "tx": tx0, "ty": ty0, "base": base,
             "lon": np.round(lon[base:fin] * 1e5).astype(np.int64).tolist(),
