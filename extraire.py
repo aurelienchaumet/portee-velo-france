@@ -92,6 +92,8 @@ def main():
             working_directory=tmp,
             ignore_cache=True,
             memory_limit=int(ram_go * 1024 ** 3),    # en octets ; DuckDB déborde sur disque au-delà
+            # extension spatial installée sur D: (cache/duckdb_ext) et non dans ~/.duckdb (C:)
+            duckdb_conn_kwargs={"config_kwargs": {"extension_directory": str(Path(__file__).resolve().parent / "cache" / "duckdb_ext")}},
         )
     duree = time.perf_counter() - debut
     mo = 1024 ** 2
