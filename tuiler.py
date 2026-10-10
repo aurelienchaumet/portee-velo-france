@@ -70,31 +70,41 @@ def tuiles_des_emprises(emprises):
     return tuiles
 
 
-def lire_voies(con, parquets, emprises):
-    """Voies cyclables classées : liste de (coords lon/lat ndarray, classe, vitesse, sens)."""
-    vues, voies, ecartees = set(), [], 0
-    for parquet in parquets:
-        for w, s, e, n in emprises:
-            # Une requête par emprise : le PBF France ne tient pas en mémoire d'un coup
-            res = con.execute(f"""
-                SELECT feature_id, tags, ST_AsWKB(geometry)
-                FROM read_parquet(?)
-                WHERE tags['highway'] IS NOT NULL
-                  AND ST_GeometryType(geometry) IN ('LINESTRING', 'POLYGON')
-                  AND ST_Intersects(geometry, ST_MakeEnvelope(?, ?, ?, ?))
-            """, [str(parquet), w - 0.01, s - 0.01, e + 0.01, n + 0.01]).fetchall()
-            for fid, tags, wkb in res:
-                if fid in vues:
-                    continue
-                vues.add(fid)
-                r = classer(tags)
-                if r is None:
-                    ecartees += 1
-                    continue
-                g = shapely.from_wkb(bytes(wkb))
-                if g.geom_type == "Polygon":       # voie fermée (boucle, rond-point) lue comme surface par QuackOSM
-                    g = g.exterior
-                voies.append((np.asarray(g.coords)[:, :2], *r))
+def zone_wkt(boites):
+    """Union de boîtes (lon_min, lat_min, lon_max, lat_max) en WKT, pour filtrer DuckDB en une seule requête."""
+    return shapely.union_all([shapely.box(*b) for b in boites]).wkt
+
+
+def prefiltrer(con, parquets, boites, chemin):
+    """Une seule lecture des GeoParquet régionaux : voies et plans d'eau des zones demandées vers un petit
+    GeoParquet sur D: (cache/tmp). Évite de relire 2,2 Go pour chaque groupe de tuiles."""
+    t0 = time.time()
+    con.execute(f"""
+        COPY (SELECT feature_id, tags, geometry FROM read_parquet({[str(p) for p in parquets]!r})
+              WHERE ((tags['highway'] IS NOT NULL AND ST_GeometryType(geometry) IN ('LINESTRING', 'POLYGON'))
+                  OR (tags['natural'] = 'water' AND ST_GeometryType(geometry) IN ('POLYGON', 'MULTIPOLYGON')))
+                AND ST_Intersects(geometry, ST_GeomFromText('{zone_wkt(boites)}')))
+        TO '{chemin.as_posix()}' (FORMAT parquet)""")
+    print(f"  préfiltrage : {chemin.stat().st_size / 1024 ** 2:.0f} Mo en {time.time() - t0:.0f} s")
+
+
+def lire_voies(con, source, boites):
+    """Voies cyclables classées d'une zone : liste de (coords lon/lat ndarray, classe, vitesse, sens)."""
+    voies, ecartees = [], 0
+    res = con.execute("""
+        SELECT DISTINCT ON (feature_id) feature_id, tags, ST_AsWKB(geometry) FROM read_parquet(?)
+        WHERE tags['highway'] IS NOT NULL AND ST_GeometryType(geometry) IN ('LINESTRING', 'POLYGON')
+          AND ST_Intersects(geometry, ST_GeomFromText(?))
+        ORDER BY feature_id""", [source, zone_wkt(boites)]).fetchall()   # ordre fixe : tuiles identiques d'une génération à l'autre
+    for _fid, tags, wkb in res:
+        r = classer(tags)
+        if r is None:
+            ecartees += 1
+            continue
+        g = shapely.from_wkb(bytes(wkb))
+        if g.geom_type == "Polygon":       # voie fermée (boucle, rond-point) lue comme surface par QuackOSM
+            g = g.exterior
+        voies.append((np.asarray(g.coords)[:, :2], *r))
     print(f"  {len(voies)} voies cyclables, {ecartees} écartées par classer()")
     return voies
 
@@ -178,25 +188,29 @@ def garder_composantes(nb, a, b, groupe_noeud):
 
 
 class MasqueTerre:
-    """Terre = polygones terrestres OSM moins plans d'eau de plus de 1 ha, lus UNE fois pour toute l'emprise.
+    """Terre = polygones terrestres OSM moins plans d'eau de plus de 1 ha.
 
-    (Une lecture du shapefile zippé prend ~11 s : la refaire par tuile coûtait 5 min pour 25 tuiles.)
+    Les polygones terrestres sont lus UNE fois pour toute l'emprise (une lecture du shapefile zippé prend
+    ~11 s) ; les plans d'eau sont chargés groupe par groupe (charger_eaux) : ceux de la France entière ne
+    tiendraient pas en mémoire.
     """
 
-    def __init__(self, con, parquets, emprise, vers_l93):
-        w, s, e, n = emprise
-        self.terre = pyogrio.read_dataframe(TERRE_SHP.format(TERRE_ZIP.as_posix()), bbox=(w, s, e, n)).geometry.values
-        eaux = []
-        for parquet in parquets:
-            eaux += [shapely.from_wkb(bytes(r[0])) for r in con.execute("""
-                SELECT ST_AsWKB(geometry) FROM read_parquet(?)
-                WHERE tags['natural'] = 'water' AND ST_GeometryType(geometry) IN ('POLYGON', 'MULTIPOLYGON')
-                  AND ST_Intersects(geometry, ST_MakeEnvelope(?, ?, ?, ?))""", [str(parquet), w, s, e, n]).fetchall()]
-        aire = lambda g: shapely.transform(g, lambda c: np.column_stack(vers_l93.transform(c[:, 0], c[:, 1]))).area
-        self.eaux = np.array([g for g in eaux if aire(g) > EAU_MIN_M2], dtype=object)
+    def __init__(self, emprise, vers_l93):
+        self.terre = pyogrio.read_dataframe(TERRE_SHP.format(TERRE_ZIP.as_posix()), bbox=emprise).geometry.values
         self.arbre_terre = shapely.STRtree(self.terre)
+        self.vers_l93 = vers_l93
+        self.eaux, self.arbre_eaux = np.array([], dtype=object), None
+        print(f"  masque terre : {len(self.terre)} polygones terrestres")
+
+    def charger_eaux(self, con, source, boites):
+        """Plans d'eau de plus de 1 ha du groupe de tuiles courant."""
+        brut = [shapely.from_wkb(bytes(r[0])) for r in con.execute("""
+            SELECT ST_AsWKB(geometry) FROM read_parquet(?)
+            WHERE tags['natural'] = 'water' AND ST_GeometryType(geometry) IN ('POLYGON', 'MULTIPOLYGON')
+              AND ST_Intersects(geometry, ST_GeomFromText(?))""", [source, zone_wkt(boites)]).fetchall()]
+        aire = lambda g: shapely.transform(g, lambda c: np.column_stack(self.vers_l93.transform(c[:, 0], c[:, 1]))).area
+        self.eaux = np.array([g for g in brut if aire(g) > EAU_MIN_M2], dtype=object)
         self.arbre_eaux = shapely.STRtree(self.eaux) if len(self.eaux) else None
-        print(f"  masque terre : {len(self.terre)} polygones terrestres, {len(self.eaux)} plans d'eau > 1 ha")
 
     def cellules(self, clon, clat):
         """Booléen « sur la terre » pour chaque centre de cellule d'une tuile."""
@@ -216,14 +230,11 @@ class MasqueTerre:
 def ecrire_contour_departement(con, parquets, code, marge_km, sortie):
     """Contour OSM du département (boundary=administrative, admin_level=6, ref=code) : écrit contour.json
     (GeoJSON simplifié, pour la page : limite du survol) et renvoie l'emprise élargie de marge_km."""
-    for parquet in parquets:
-        r = con.execute("""
-            SELECT tags['name'], ST_AsWKB(geometry) FROM read_parquet(?)
-            WHERE tags['boundary'] = 'administrative' AND tags['admin_level'] = '6' AND tags['ref'] = ?
-              AND ST_GeometryType(geometry) IN ('POLYGON', 'MULTIPOLYGON')""", [str(parquet), code]).fetchone()
-        if r:
-            break
-    else:
+    r = con.execute(f"""
+        SELECT tags['name'], ST_AsWKB(geometry) FROM read_parquet({[str(p) for p in parquets]!r})
+        WHERE tags['boundary'] = 'administrative' AND tags['admin_level'] = '6' AND tags['ref'] = ?
+          AND ST_GeometryType(geometry) IN ('POLYGON', 'MULTIPOLYGON') LIMIT 1""", [code]).fetchone()
+    if not r:
         sys.exit(f"département {code} absent des GeoParquet fournis")
     nom, geom = r[0], shapely.from_wkb(bytes(r[1]))
     sortie.mkdir(parents=True, exist_ok=True)
@@ -248,100 +259,79 @@ def ecrire_controle(chemin, n, a, b, l_dm, attr):
                                   "empreinte": hashlib.sha256("\n".join(lignes).encode()).hexdigest()}), "utf-8")
 
 
-def main():
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--parquet", action="append", required=True, help="GeoParquet produit par extraire.py (répétable)")
-    ap.add_argument("--emprise", action="append", default=[], help="lon_min,lat_min,lon_max,lat_max (répétable)")
-    ap.add_argument("--departement", help="code du département (ex. 17) : emprise = contour OSM + marge, contour écrit dans la sortie")
-    ap.add_argument("--marge-km", type=float, default=25, help="marge autour du département (défaut 25 km)")
-    ap.add_argument("--sortie", default="tuiles", help="dossier des tuiles")
-    ap.add_argument("--controle", help="écrit l'empreinte du graphe complet (test de recollage sans perte)")
-    args = ap.parse_args()
-    t0 = time.time()
-    emprises = [tuple(float(v) for v in e.split(",")) for e in args.emprise]
-    con = connecter()
-    if args.departement:
-        emprises.append(ecrire_contour_departement(con, args.parquet, args.departement, args.marge_km, Path(args.sortie)))
-    if not emprises:
-        ap.error("--emprise ou --departement requis")
-    tuiles = tuiles_des_emprises(emprises)
-    # Les voies sont lues sur toute l'étendue des tuiles (pas seulement l'emprise demandée) : sinon le
-    # bord des tuiles reste sans réseau et ses cellules tombent « hors d'atteinte »
+def traiter_groupe(con, source, tuiles, base0, masque, vers_l93, sortie, controle):
+    """Graphe, numérotation (à partir de base0) et écriture des tuiles d'un groupe de tuiles contiguës.
+    Renvoie (lignes de l'index, nombre de nœuds, octets écrits)."""
     lt, ht = DLON * CELLULES_TUILE, DLAT * CELLULES_TUILE
-    emprises = [(LON0 + int((w - LON0) // lt) * lt, LAT0 - (int((LAT0 - s) // ht) + 1) * ht,
-                 LON0 + (int((e - LON0) // lt) + 1) * lt, LAT0 - int((LAT0 - n) // ht) * ht)
-                for w, s, e, n in emprises]
-    groupe = groupes_de_tuiles(tuiles)
-    print(f"{len(tuiles)} tuiles, {max(groupe.values()) + 1} zone(s)")
-    vers_l93 = Transformer.from_crs(4326, 2154, always_xy=True)
-
-    # 1-3. Voies, nœuds, arêtes
-    voies = lire_voies(con, args.parquet, emprises)
-    noeuds, a, b, attr = construire_graphe(voies)
-    tx, ty = tuile_xy(noeuds[:, 0], noeuds[:, 1])
-    dans = np.array([(x, y) in tuiles for x, y in zip(tx.tolist(), ty.tolist())])
-    garde = dans[a] & dans[b]
-    grp = np.array([groupe.get((x, y), -1) for x, y in zip(tx.tolist(), ty.tolist())])
-    a, b, attr = a[garde], b[garde], attr[garde]
-    garde = garder_composantes(len(noeuds), a, b, grp)
-    a, b, attr = a[garde], b[garde], attr[garde]
-
-    # 5. Numérotation globale : tuile par tuile (ordre ty, tx), puis carré de 1 km, puis longitude
-    utilises = np.unique(np.concatenate([a, b]))
+    # Voies lues sur toute l'étendue des tuiles (sinon le bord des tuiles reste sans réseau)
+    boites = [(LON0 + tx * lt, LAT0 - (ty + 1) * ht, LON0 + (tx + 1) * lt, LAT0 - ty * ht) for tx, ty in tuiles]
+    voies = lire_voies(con, source, boites)
+    masque.charger_eaux(con, source, boites)
     ordre_tuile = {t: k for k, t in enumerate(sorted(tuiles, key=lambda t: (t[1], t[0])))}
+    if voies:
+        noeuds, a, b, attr = construire_graphe(voies)
+        tx, ty = tuile_xy(noeuds[:, 0], noeuds[:, 1])
+        dans = np.array([(x, y) in tuiles for x, y in zip(tx.tolist(), ty.tolist())])
+        garde = dans[a] & dans[b]
+        a, b, attr = a[garde], b[garde], attr[garde]
+    if not voies or len(a) == 0:
+        noeuds, a, b, attr = np.zeros((0, 2)), np.zeros(0, np.int64), np.zeros(0, np.int64), np.zeros((0, 3), np.int64)
+        tx = ty = np.zeros(0, np.int64)
+    else:
+        # Plus grande composante connexe du groupe (comme build_graph_velo.py)
+        garde = garder_composantes(len(noeuds), a, b, np.zeros(len(noeuds), np.int64))
+        a, b, attr = a[garde], b[garde], attr[garde]
+
+    # Numérotation : tuile par tuile (ordre ty, tx), puis carré de 1 km, puis longitude ; à partir de base0
+    utilises = np.unique(np.concatenate([a, b]))
     lon, lat = noeuds[utilises, 0], noeuds[utilises, 1]
-    k_tuile = np.array([ordre_tuile[(x, y)] for x, y in zip(tx[utilises].tolist(), ty[utilises].tolist())])
+    k_tuile = np.array([ordre_tuile[(x, y)] for x, y in zip(tx[utilises].tolist(), ty[utilises].tolist())], dtype=np.int64)
     carre_y = np.floor((LAT0 - lat) / CARRE_TRI_DEG[1]).astype(np.int64)
     carre_x = np.floor((lon - LON0) / CARRE_TRI_DEG[0]).astype(np.int64)
     tri = np.lexsort((lon, carre_x, carre_y, k_tuile))
     gid = np.empty(len(noeuds), np.int64)
     gid[utilises[tri]] = np.arange(len(utilises))
-    a, b = gid[a], gid[b]
+    a, b = gid[a], gid[b]                                   # indices locaux au groupe ; + base0 à l'écriture
     lon, lat, k_tuile = lon[tri], lat[tri], k_tuile[tri]
     longueur = np.hypot((lon[a] - lon[b]) * np.cos(np.radians(lat[a])), lat[a] - lat[b]) * M_PAR_DEG
     l_dm = np.maximum(1, np.round(longueur * 10)).astype(np.int64)
     classe, vit, sens = attr[:, 0], attr[:, 1], attr[:, 2]
     attr_code = classe | (sens << 3) | (vit << 5)
-    print(f"Graphe : {len(lon)} nœuds, {len(a)} arêtes, {longueur.sum() / 1000:.0f} km")
+    print(f"  graphe : {len(lon)} nœuds, {len(a)} arêtes, {longueur.sum() / 1000:.0f} km")
+    if controle is not None:
+        controle.append((len(lon), a + base0, b + base0, l_dm, attr_code))
 
-    # 6. Cellules : arbres des nœuds par mode, en Lambert-93 (distances en mètres)
     x, y = vers_l93.transform(lon, lat)
-    arbre_tout = cKDTree(np.column_stack([x, y]))
+    arbre_tout = cKDTree(np.column_stack([x, y])) if len(lon) else None
     amen = np.unique(np.concatenate([a[np.isin(classe, CLASSES_AMEN)], b[np.isin(classe, CLASSES_AMEN)]]))
     arbre_amen = cKDTree(np.column_stack([x[amen], y[amen]])) if len(amen) else None
-
-    # 7. Écriture tuile par tuile
-    sortie = Path(args.sortie)
-    sortie.mkdir(parents=True, exist_ok=True)
-    txs, tys = [t[0] for t in tuiles], [t[1] for t in tuiles]
-    masque = MasqueTerre(con, args.parquet, (LON0 + min(txs) * lt, LAT0 - (max(tys) + 1) * ht,
-                                             LON0 + (max(txs) + 1) * lt, LAT0 - min(tys) * ht), vers_l93)
     debut_tuile = np.searchsorted(k_tuile, np.arange(len(ordre_tuile) + 1))
     index, octets_total = [], 0
+    ii, jj = np.meshgrid(np.arange(CELLULES_TUILE), np.arange(CELLULES_TUILE))
     for (tx0, ty0), k in sorted(ordre_tuile.items(), key=lambda kv: kv[1]):
-        base, fin = int(debut_tuile[k]), int(debut_tuile[k + 1])
-        possedees = (a >= base) & (a < fin)                   # arête rattachée à la tuile de son nœud a
-        ii, jj = np.meshgrid(np.arange(CELLULES_TUILE), np.arange(CELLULES_TUILE))
+        deb, fin = int(debut_tuile[k]), int(debut_tuile[k + 1])
+        possedees = (a >= deb) & (a < fin)                   # arête rattachée à la tuile de son nœud a
         clon = (LON0 + (tx0 * CELLULES_TUILE + ii + 0.5) * DLON).ravel()
         clat = (LAT0 - (ty0 * CELLULES_TUILE + jj + 0.5) * DLAT).ravel()
         terre = masque.cellules(clon, clat)
         cx, cy = vers_l93.transform(clon, clat)
-        d_tout, p_tout = arbre_tout.query(np.column_stack([cx, cy]))
+        aucun = (np.full(len(cx), np.inf), np.full(len(cx), -1))
+        d_tout, p_tout = arbre_tout.query(np.column_stack([cx, cy])) if arbre_tout is not None else aucun
         if arbre_amen is not None:
             d_amen, p_amen = arbre_amen.query(np.column_stack([cx, cy]))
             p_amen = amen[p_amen]
         else:
-            d_amen, p_amen = np.full(len(cx), np.inf), np.full(len(cx), -1)
+            d_amen, p_amen = aucun
         # Cellules en mer : aucun nœud (allège la tuile ; tempsGrille les ignore de toute façon), sauf à moins
         # de MER_PRO_MAX_M d'un nœud : sinon un pont ou une jetée n'est le nœud d'aucune cellule et
         # accrocher() ne peut pas s'y raccrocher (curseur sur le pont d'Oléron accroché à la côte à 800 m)
-        p_tout = np.where(terre | (d_tout <= MER_PRO_MAX_M), p_tout, -1)
-        p_amen = np.where(terre | (d_amen <= MER_PRO_MAX_M), p_amen, -1)
+        p_tout = np.where((terre | (d_tout <= MER_PRO_MAX_M)) & (p_tout >= 0), p_tout + base0, -1)
+        p_amen = np.where((terre | (d_amen <= MER_PRO_MAX_M)) & (p_amen >= 0), p_amen + base0, -1)
         t = {
-            "tx": tx0, "ty": ty0, "base": base,
-            "lon": np.round(lon[base:fin] * 1e5).astype(np.int64).tolist(),
-            "lat": np.round(lat[base:fin] * 1e5).astype(np.int64).tolist(),
-            "a": (a[possedees] - base).tolist(), "b": b[possedees].tolist(),
+            "tx": tx0, "ty": ty0, "base": base0 + deb,
+            "lon": np.round(lon[deb:fin] * 1e5).astype(np.int64).tolist(),
+            "lat": np.round(lat[deb:fin] * 1e5).astype(np.int64).tolist(),
+            "a": (a[possedees] - deb).tolist(), "b": (b[possedees] + base0).tolist(),
             "l": l_dm[possedees].tolist(), "attr": attr_code[possedees].tolist(),
             "ncx": CELLULES_TUILE, "ncy": CELLULES_TUILE, "terre": terre.astype(int).tolist(),
             "pro_tout": p_tout.tolist(), "pro_amen": p_amen.tolist(),
@@ -350,17 +340,97 @@ def main():
         octets = encoder_tuile(t)
         (sortie / f"{tx0}_{ty0}.bin").write_bytes(octets)
         octets_total += len(octets)
-        index.append([tx0, ty0, base, fin - base])
+        index.append([tx0, ty0, base0 + deb, fin - deb])
+    return index, len(lon), octets_total
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--parquet", action="append", required=True, help="GeoParquet produit par extraire.py (répétable, motif * accepté)")
+    ap.add_argument("--emprise", action="append", default=[], help="lon_min,lat_min,lon_max,lat_max (répétable)")
+    ap.add_argument("--departement", help="code du département (ex. 17) : emprise = contour OSM + marge, contour écrit dans la sortie")
+    ap.add_argument("--marge-km", type=float, default=25, help="marge autour du département (défaut 25 km)")
+    ap.add_argument("--chefs-lieux", help="chefs_lieux.json : ajoute une emprise de --rayon-km autour de chaque mairie")
+    ap.add_argument("--rayon-km", type=float, default=8, help="demi-côté de l'emprise autour d'une mairie (défaut 8 km)")
+    ap.add_argument("--sortie", default="tuiles", help="dossier des tuiles")
+    ap.add_argument("--controle", help="écrit l'empreinte du graphe complet (test de recollage sans perte)")
+    ap.add_argument("--duree-max-min", type=float, default=0,
+                    help="s'arrête proprement après ce temps (0 = sans limite) ; relancer la même commande reprend")
+    args = ap.parse_args()
+    t0 = time.time()
+    parquets = [str(p) for motif in args.parquet for p in (sorted(Path().glob(motif)) if "*" in motif else [Path(motif)])]
+    emprises = [tuple(float(v) for v in e.split(",")) for e in args.emprise]
+    con = connecter()
+    sortie = Path(args.sortie)
+    sortie.mkdir(parents=True, exist_ok=True)
+    if args.departement:
+        emprises.append(ecrire_contour_departement(con, parquets, args.departement, args.marge_km, sortie))
+    if args.chefs_lieux:
+        for c in json.loads(Path(args.chefs_lieux).read_text("utf-8")):
+            dlat = args.rayon_km / 111.32
+            dlon = args.rayon_km / (111.32 * math.cos(math.radians(c["lat"])))
+            emprises.append((c["lon"] - dlon, c["lat"] - dlat, c["lon"] + dlon, c["lat"] + dlat))
+    if not emprises:
+        ap.error("--emprise, --departement ou --chefs-lieux requis")
+    tuiles = tuiles_des_emprises(emprises)
+    groupe = groupes_de_tuiles(tuiles)
+    groupes = {}
+    for t, g in groupe.items():
+        groupes.setdefault(g, set()).add(t)
+    print(f"{len(tuiles)} tuiles en {len(groupes)} groupe(s) de tuiles contiguës")
+    vers_l93 = Transformer.from_crs(4326, 2154, always_xy=True)
+    lt, ht = DLON * CELLULES_TUILE, DLAT * CELLULES_TUILE
+    boites = [(LON0 + tx * lt, LAT0 - (ty + 1) * ht, LON0 + (tx + 1) * lt, LAT0 - ty * ht) for tx, ty in tuiles]
+
+    # Plusieurs fichiers ou plusieurs groupes : une seule lecture des sources vers un fichier intermédiaire
+    # Reprise : la progression (groupes faits, index, numéro de nœud suivant) est enregistrée après chaque
+    # groupe ; une relance avec les mêmes arguments repart du groupe suivant. Signature = arguments.
+    signature = json.dumps([sorted(parquets), sorted(map(list, tuiles))])
+    fichier_prog = sortie / "progression.json"
+    prog = json.loads(fichier_prog.read_text("utf-8")) if fichier_prog.exists() else None
+    if not prog or prog["signature"] != signature:
+        prog = {"signature": signature, "faits": 0, "index": [], "base": 0, "octets": 0}
+    if args.controle and prog["faits"]:
+        sys.exit("--controle demande un passage complet : supprimez progression.json")
+
+    source = parquets[0]
+    if len(parquets) > 1 or len(groupes) > 1:
+        intermediaire = ICI / "cache" / "tmp" / "zones.parquet"
+        intermediaire.parent.mkdir(parents=True, exist_ok=True)
+        if not (prog["faits"] and intermediaire.exists()):          # déjà préfiltré lors du lancement précédent
+            prefiltrer(con, parquets, boites, intermediaire)
+        source = str(intermediaire)
+    emprise = (min(b[0] for b in boites), min(b[1] for b in boites), max(b[2] for b in boites), max(b[3] for b in boites))
+    masque = MasqueTerre(emprise, vers_l93)
+
+    controle = [] if args.controle else None
+    ordre = sorted(groupes.values(), key=lambda tg: min((t[1], t[0]) for t in tg))
+    # Groupes traités l'un après l'autre (mémoire = un seul groupe) ; numérotation continue d'un groupe à l'autre
+    for rang in range(prog["faits"], len(ordre)):
+        if args.duree_max_min and time.time() - t0 > args.duree_max_min * 60:
+            print(f"Arrêt après {args.duree_max_min:g} min : {rang}/{len(ordre)} groupes faits. Relancez la même commande pour continuer.")
+            return
+        tg = ordre[rang]
+        print(f"Groupe {rang + 1}/{len(ordre)} : {len(tg)} tuiles")
+        lignes, nb, octets = traiter_groupe(con, source, tg, prog["base"], masque, vers_l93, sortie, controle)
+        prog["index"] += lignes
+        prog["base"] += nb
+        prog["octets"] += octets
+        prog["faits"] = rang + 1
+        fichier_prog.write_text(json.dumps(prog), "utf-8")
+    index, base, octets_total = prog["index"], prog["base"], prog["octets"]
     if args.controle:
-        ecrire_controle(Path(args.controle), len(lon), a, b, l_dm, attr_code)
+        cat = lambda i: np.concatenate([c[i] for c in controle])
+        ecrire_controle(Path(args.controle), sum(c[0] for c in controle), cat(1), cat(2), cat(3), cat(4))
     (sortie / "tuiles.json").write_text(json.dumps({
         "version": 1, "genere": datetime.now().strftime("%Y-%m-%d %H:%M"),
-        "sources": [Path(p).name for p in args.parquet], "terre": TERRE_ZIP.name,
+        "sources": [Path(p).name for p in parquets], "terre": TERRE_ZIP.name,
         "grille": {"lon0": LON0, "lat0": LAT0, "dlon": DLON, "dlat": DLAT, "cellulesTuile": CELLULES_TUILE},
         "tuiles": index,
     }, ensure_ascii=False), "utf-8")
-    print(f"Écrit : {len(index)} tuiles, {octets_total / 1024 ** 2:.1f} Mo, "
-          f"{octets_total / 1024 / len(index):.0f} Ko par tuile en moyenne, en {time.time() - t0:.0f} s")
+    fichier_prog.unlink()                                        # terminé : plus rien à reprendre
+    print(f"Écrit : {len(index)} tuiles, {base} nœuds, {octets_total / 1024 ** 2:.1f} Mo, "
+          f"{octets_total / 1024 / max(1, len(index)):.0f} Ko par tuile en moyenne, en {time.time() - t0:.0f} s")
 
 
 if __name__ == "__main__":
