@@ -12,6 +12,8 @@ const CFG = {
   vitesseAccesKmh: 16,                 // accès au réseau hors voies (base vélo 20 km/h ×0,8)
   detourAcces: 1.3,
   accesMaxM: { tout: 2000, amenage: 800 },   // 2 km : couvre les marais de la Seudre, à 1,7 km de toute voie
+  traverseeMaxM: 30,
+  morceauMinNoeuds: 200,               // mode pistes : un départ ne s'accroche pas à un bout de piste isolé                   // mode pistes : segment de route < 30 m au contact d'une piste = traversée praticable
 };
 const R_TERRE = 6371008.8, RAD = Math.PI / 180;
 
@@ -50,10 +52,26 @@ function preparer(D) {
 // Graphe orienté en CSR pour un mode ; poids = secondes (pénalité incluse).
 // Chaque arête donne deux arcs : un sens unique se parcourt à contre-sens à pied (CFG.vitesseContreSensKmh).
 function construireGraphe(P, mode) {
-  const pen = CFG.penalites[mode], n = P.n, m = P.m;
+  const n = P.n, m = P.m;
+  // Pénalité par arête. Mode pistes : un segment de route de moins de CFG.traverseeMaxM qui touche une piste
+  // ou une bande est praticable (au coût du mode « tout ») : traversées de chaussée et raccords entre deux
+  // pistes, qu'OSM classe en route. Sans ça, le réseau de pistes est en miettes (Lyon : 4 nœuds atteints
+  // depuis la mairie). Un seul segment au contact d'une piste : la règle ne se propage pas le long d'une route.
+  const penCls = CFG.penalites[mode], penE = new Float32Array(m);
+  let touche = null;
+  if (mode === "amenage") {
+    touche = new Uint8Array(n);
+    for (let e = 0; e < m; e++) if (isFinite(penCls[P.cls[e]])) { touche[P.a[e]] = 1; touche[P.b[e]] = 1; }
+  }
+  for (let e = 0; e < m; e++) {
+    let p = penCls[P.cls[e]];
+    if (!isFinite(p) && touche && P.lm[e] < CFG.traverseeMaxM && (touche[P.a[e]] || touche[P.b[e]]))
+      p = CFG.penalites.tout[P.cls[e]];
+    penE[e] = p;
+  }
   const off = new Uint32Array(n + 1);
   for (let e = 0; e < m; e++) {
-    if (!isFinite(pen[P.cls[e]])) continue;
+    if (!isFinite(penE[e])) continue;
     off[P.a[e] + 1]++;
     off[P.b[e] + 1]++;
   }
@@ -62,7 +80,7 @@ function construireGraphe(P, mode) {
   const cible = new Int32Array(nArcs), source = new Int32Array(nArcs), arete = new Int32Array(nArcs);
   const poids = new Float32Array(nArcs), curseur = off.slice(0, n), actif = new Uint8Array(n);
   for (let e = 0; e < m; e++) {
-    const p = pen[P.cls[e]];
+    const p = penE[e];
     if (!isFinite(p)) continue;
     const s = P.lm[e] / (P.vit[e] / 3.6) * p, a = P.a[e], b = P.b[e];
     const pied = P.lm[e] / (CFG.vitesseContreSensKmh / 3.6);
@@ -70,7 +88,21 @@ function construireGraphe(P, mode) {
     { const k = curseur[b]++; cible[k] = a; source[k] = b; poids[k] = P.sens[e] === 1 ? pied : s; arete[k] = e; }
     actif[a] = 1; actif[b] = 1;
   }
-  return { mode, n, nArcs, off, cible, source, poids, arete, actif };
+  // Nœuds où un départ peut s'accrocher. Mode pistes : seulement les morceaux d'au moins
+  // CFG.morceauMinNoeuds nœuds ; sinon le départ tombe sur un bout de piste isolé à 50 m (Lyon : 7 nœuds)
+  // alors que le vrai réseau (27 000 nœuds) est à 240 m. Mode tout : le graphe est déjà d'un seul tenant.
+  let accrochable = actif;
+  if (mode === "amenage") {
+    const parent = new Int32Array(n);
+    for (let v = 0; v < n; v++) parent[v] = v;
+    const racine = x => { while (parent[x] !== x) { parent[x] = parent[parent[x]]; x = parent[x]; } return x; };
+    for (let k = 0; k < nArcs; k++) { const ra = racine(source[k]), rb = racine(cible[k]); if (ra !== rb) parent[ra] = rb; }
+    const taille = new Int32Array(n);
+    for (let v = 0; v < n; v++) if (actif[v]) taille[racine(v)]++;
+    accrochable = new Uint8Array(n);
+    for (let v = 0; v < n; v++) accrochable[v] = actif[v] && taille[racine(v)] >= CFG.morceauMinNoeuds ? 1 : 0;
+  }
+  return { mode, n, nArcs, off, cible, source, poids, arete, actif, accrochable };
 }
 
 // Dijkstra avec tas binaire ; pred[v] = arc par lequel on arrive en v.
@@ -113,7 +145,7 @@ function dijkstra(G, src, t0, limite = Infinity) {
   return { dist, pred, src };
 }
 
-// Nœud actif le plus proche d'un point, cherché par anneaux de cellules autour du point (chaque cellule
+// Nœud accrochable (G.accrochable) le plus proche d'un point, cherché par anneaux de cellules autour du point (chaque cellule
 // connaît son nœud le plus proche), sans dépasser CFG.accesMaxM du mode : au-delà, null (« aucune voie »).
 // Coût borné (~1 800 cellules au pire) quelle que soit la taille du graphe ; l'ancienne version
 // parcourait tous les nœuds dès que les 3 × 3 cellules voisines étaient vides (mer, grands champs).
@@ -127,7 +159,7 @@ function accrocher(P, G, lon, lat) {
   const essayer = (i, j) => {
     if (i < 0 || j < 0 || i >= g.nx || j >= g.ny) return;
     const v = pro[j * g.nx + i];
-    if (v < 0 || !G.actif[v]) return;
+    if (v < 0 || !G.accrochable[v]) return;
     const d = distanceM(lon, lat, P.lon[v], P.lat[v]);
     if (d < dMin) { dMin = d; meilleur = v; }
   };

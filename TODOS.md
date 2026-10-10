@@ -5,6 +5,7 @@
 - **Why** : un seul modèle de calcul ; sinon une pénalité ou un correctif changé d'un côté donne des temps différents pour la même route.
 - **Pros** : plus de divergence silencieuse. **Cons** : la carte Oléron dépend alors de ce dépôt.
 - **Context** : copie créée le 2026-10-10 depuis portee-velo (commit 1d4a854), identique à ce jour. Ajouts prévus ici : décodage delta, recollage de tuiles, Dijkstra borné, accrochage par anneaux, chargeur LRU.
+- **Écart de modèle à reporter (10/10/2026)** : en mode pistes, la version France autorise les segments de route de moins de 30 m au contact d'une piste (traversées) et n'accroche le départ qu'à un morceau de pistes d'au moins 200 nœuds (`CFG.traverseeMaxM`, `CFG.morceauMinNoeuds`, choix d'Aurélien : D1 de la session). La carte Marennes-Oléron ne le fait pas encore : à reporter au moment de la réunification.
 - **Depends on** : version France stable.
 
 ## Étendre aux 35 000 communes

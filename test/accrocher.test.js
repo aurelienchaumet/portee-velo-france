@@ -69,7 +69,7 @@ test("sur les tuiles réelles d'Oléron : même nœud (à une cellule près) qu'
       const lon = P.grille.w + ((s * 7919) % 997) / 997 * P.grille.nx * P.grille.dlon;
       const lat = P.grille.n - ((s * 104729) % 991) / 991 * P.grille.ny * P.grille.dlat;
       let dExact = Infinity;
-      for (let v = 0; v < P.n; v++) if (G.actif[v]) dExact = Math.min(dExact, C.distanceM(lon, lat, P.lon[v], P.lat[v]));
+      for (let v = 0; v < P.n; v++) if (G.accrochable[v]) dExact = Math.min(dExact, C.distanceM(lon, lat, P.lon[v], P.lat[v]));
       const r = C.accrocher(P, G, lon, lat);
       if (dExact > C.CFG.accesMaxM[mode] + 150) { assert.equal(r, null, `${mode} ${lon},${lat}`); continue; }
       if (r === null) { assert.ok(dExact > C.CFG.accesMaxM[mode] - 150, `${mode} : null alors qu'une voie est à ${dExact} m`); continue; }
