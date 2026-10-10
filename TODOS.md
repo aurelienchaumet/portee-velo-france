@@ -24,3 +24,9 @@
 - **What** : retester le survol après le passage au canvas direct (commit ac562f0) ; si c'est encore lent, dire si c'est en continu, par à-coups en changeant de zone, ou à l'arrêt de la souris.
 - **Why** : retour du 10/10/2026 « ça fonctionne mais c'est un poil lent à l'affichage ».
 - **Context** : leviers suivants selon le cas : limiter grille/surfaces à la zone atteignable en 60 min ; précharger plus tôt ; isolignes plus légères.
+
+## Vidéo explicative (à la fin, avec le README)
+- **What** : vidéo MP4 expliquant le projet et son fonctionnement : animations Manim (chaîne PBF → tuiles, découpage, Dijkstra, fenêtre 5 × 5), démo de la page enregistrée avec Playwright, voix off Piper (TTS local) relue par Aurélien, montage ffmpeg avec sous-titres.
+- **Why** : demande d'Aurélien (10/10/2026), pour présenter le projet.
+- **Context** : outils open source et locaux (préférence d'Aurélien) ; Remotion écarté (licence propriétaire). Variante : vidéo muette minutée + texte, si Aurélien enregistre sa voix.
+- **Depends on** : fin du codage et README (mêmes schémas).
