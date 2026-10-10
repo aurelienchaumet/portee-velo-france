@@ -1,0 +1,15 @@
+# TODO — À portée de vélo, France
+
+## Réunifier coeur.js
+- **What** : faire charger à la carte Marennes-Oléron (dépôt sit-pmo/portee-velo) le `coeur.js` de ce dépôt, ou publier `coeur.js` une seule fois, puis supprimer la copie.
+- **Why** : un seul modèle de calcul ; sinon une pénalité ou un correctif changé d'un côté donne des temps différents pour la même route.
+- **Pros** : plus de divergence silencieuse. **Cons** : la carte Oléron dépend alors de ce dépôt.
+- **Context** : copie créée le 2026-10-10 depuis portee-velo (commit 1d4a854), identique à ce jour. Ajouts prévus ici : décodage delta, recollage de tuiles, Dijkstra borné, accrochage par anneaux, chargeur LRU.
+- **Depends on** : version France stable.
+
+## Étendre aux 35 000 communes
+- **What** : score de chaque commune (km² terrestres atteints en 15 min depuis la mairie), médiane par département, couche « écart pistes / toutes voies ».
+- **Why** : classement plus juste que le seul chef-lieu, et vraie carte « où le vélo dépend de la route ».
+- **Pros** : même chaîne, seulement plus de départs. **Cons** : PBF France entier, tuiles nationales.
+- **Context** : idée du second avis de /office-hours (10/10/2026), écartée pour la v1 (chef-lieu seul).
+- **Depends on** : v1 en ligne, passage de l'hébergement à PMTiles ou Cloudflare R2.

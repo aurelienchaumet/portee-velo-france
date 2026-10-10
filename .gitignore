@@ -1,0 +1,6 @@
+# Données lourdes et intermédiaires : jamais dans le dépôt
+cache/
+*.pbf
+*.parquet
+.venv/
+__pycache__/
