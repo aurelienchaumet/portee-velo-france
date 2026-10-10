@@ -213,7 +213,57 @@ function champIsolignes(P, minutes) {
   return { champ, masque };
 }
 
+// ======================= TUILES (format v1, encodeur : format_tuile.py) =======================
+// Grille de France en degrés ; doit suivre LON0, LAT0, DLON, DLAT, CELLULES_TUILE de format_tuile.py
+const GRILLE_FRANCE = { lon0: -5.5, lat0: 51.5, dlon: 0.00125, dlat: 0.0009, cellulesTuile: 100, pasDistM: 10 };
+
+// Décompresse un fichier de tuile (gzip) avec l'API native du navigateur / de Node ≥ 18
+async function decompresserTuile(buffer) {
+  const flux = new Blob([buffer]).stream().pipeThrough(new DecompressionStream("gzip"));
+  return new Uint8Array(await new Response(flux).arrayBuffer());
+}
+
+// Décode les octets décompressés d'une tuile (voir l'en-tête de format_tuile.py pour la spécification)
+function decoderTuile(o) {
+  if (o[0] !== 0x50 || o[1] !== 0x56 || o[2] !== 0x54 || o[3] !== 0x31) throw new Error("tuile : en-tête PVT1 absent");
+  let p = 4;
+  // Varint LEB128 ; multiplication plutôt que décalage : les identifiants dépassent 2^31 une fois zigzagués
+  const lire = () => {
+    let v = 0, mult = 1, octet;
+    do { octet = o[p++]; v += (octet & 0x7f) * mult; mult *= 128; } while (octet & 0x80);
+    if (p > o.length) throw new Error("tuile tronquée");
+    return v;
+  };
+  const dezz = u => (u % 2 ? -(u + 1) / 2 : u / 2);
+  const deltas = (n, Type) => {
+    const t = new Type(n);
+    let prec = 0;
+    for (let i = 0; i < n; i++) { prec += dezz(lire()); t[i] = prec; }
+    return t;
+  };
+  const version = lire();
+  if (version !== 1) throw new Error(`tuile : version ${version} inconnue`);
+  const tx = dezz(lire()), ty = dezz(lire()), base = lire(), n = lire(), m = lire(), ncx = lire(), ncy = lire();
+  const lon = deltas(n, Int32Array), lat = deltas(n, Int32Array);
+  const a = new Int32Array(m), b = new Int32Array(m), l = new Uint16Array(m), attr = new Uint16Array(m);   // classe | sens << 3 | vitesse km/h << 5 : dépasse 255 dès 8 km/h
+  let precA = 0;
+  for (let e = 0; e < m; e++) {
+    precA += lire(); a[e] = base + precA;                 // a rendu en identifiant global
+    b[e] = base + precA + dezz(lire());
+    l[e] = lire(); attr[e] = lire();
+  }
+  const nc = ncx * ncy, terre = new Uint8Array(nc);
+  for (let k = 0; k < nc; k++) terre[k] = lire();
+  const pro = () => { const t = deltas(nc, Int32Array); for (let k = 0; k < nc; k++) t[k] -= 1; return t; };
+  const proTout = pro(), proAmen = pro();
+  const dist = () => { const t = new Uint16Array(nc); for (let k = 0; k < nc; k++) t[k] = lire() * GRILLE_FRANCE.pasDistM; return t; };
+  const distTout = dist(), distAmen = dist();
+  if (p !== o.length) throw new Error(`tuile : ${o.length - p} octets en trop`);
+  return { tx, ty, base, n, m, lon, lat, a, b, l, attr, ncx, ncy, terre, proTout, proAmen, distTout, distAmen };
+}
+
 if (typeof module !== "undefined") {
-  module.exports = { CFG, preparer, construireGraphe, dijkstra, accrocher, tempsGrille, itineraire, etapes, couverture, champIsolignes, accesSecondes, distanceM };
+  module.exports = { CFG, preparer, construireGraphe, dijkstra, accrocher, tempsGrille, itineraire, etapes, couverture, champIsolignes, accesSecondes, distanceM,
+    GRILLE_FRANCE, decompresserTuile, decoderTuile };
 }
 // ===================================== FIN CŒUR =====================================

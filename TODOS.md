@@ -13,3 +13,9 @@
 - **Pros** : même chaîne, seulement plus de départs. **Cons** : PBF France entier, tuiles nationales.
 - **Context** : idée du second avis de /office-hours (10/10/2026), écartée pour la v1 (chef-lieu seul).
 - **Depends on** : v1 en ligne, passage de l'hébergement à PMTiles ou Cloudflare R2.
+
+## Rédiger la méthodologie dans le README (à la fin du codage)
+- **What** : README public avec la méthodologie complète et des schémas de l'ensemble du fonctionnement (chaîne PBF → GeoParquet → graphe → tuiles → navigateur ; format de tuile ; recollage de fenêtre ; Dijkstra borné ; scores des 96 chefs-lieux ; limites connues).
+- **Why** : demande d'Aurélien (10/10/2026) ; le dépôt est public et le README est la porte d'entrée.
+- **Context** : schémas en ASCII ou Mermaid (rendu natif par GitHub). Reprendre les diagrammes du design et de la revue d'ingénierie, mis à jour avec ce qui a réellement été codé.
+- **Depends on** : fin des tâches T1 à T9.
