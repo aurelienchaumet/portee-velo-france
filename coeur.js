@@ -342,8 +342,94 @@ function recollerTuiles(tuiles) {
   };
 }
 
+// Chargeur de fenêtre : les (2·rayon+1)² tuiles autour d'un point, recollées, avec un cache borné.
+// Décisions de la revue d'ingénierie : tuile absente de l'index = vide, sans requête ; échec = un nouvel
+// essai puis tuile vide et fenêtre marquée « partielle » (réessayée au prochain changement de fenêtre) ;
+// cache de `capacite` tuiles décodées, la moins récemment utilisée sort en premier (D4, D5).
+// Sans DOM : `lire(tx, ty)` rend les octets (fetch dans la page, fs dans les tests).
+class ChargeurTuiles {
+  constructor({ index, lire, decoder = async o => decoderTuile(await decompresserTuile(o)),
+                rayon = 2, capacite = 60, delaiMs = 15000 }) {
+    this.existe = new Set(index.tuiles.map(([tx, ty]) => `${tx}_${ty}`));
+    Object.assign(this, { lire, decoder, rayon, capacite, delaiMs });
+    this.cache = new Map();          // clé → tuile décodée ; l'ordre d'insertion sert d'ordre d'usage (LRU)
+    this.enCours = new Map();        // clé → promesse : deux demandes simultanées ne lisent qu'une fois
+    this.derniere = null;            // dernière fenêtre recollée, réutilisée si les tuiles n'ont pas changé
+    this.lectures = 0;               // compteur (tests, débogage)
+  }
+
+  tuileDe(lon, lat) {
+    const C = GRILLE_FRANCE.cellulesTuile;
+    return [Math.floor((lon - GRILLE_FRANCE.lon0) / (C * GRILLE_FRANCE.dlon)),
+            Math.floor((GRILLE_FRANCE.lat0 - lat) / (C * GRILLE_FRANCE.dlat))];
+  }
+
+  // Tuiles de l'index dans le carré de rayon r autour de (tx0, ty0)
+  voisines(tx0, ty0, r) {
+    const cles = [];
+    for (let ty = ty0 - r; ty <= ty0 + r; ty++)
+      for (let tx = tx0 - r; tx <= tx0 + r; tx++)
+        if (this.existe.has(`${tx}_${ty}`)) cles.push(`${tx}_${ty}`);
+    return cles;
+  }
+
+  // Une tuile : cache, sinon lecture (2 essais au plus, chacun limité à delaiMs) ; null si échec
+  async tuile(cle) {
+    if (this.cache.has(cle)) {
+      const t = this.cache.get(cle);
+      this.cache.delete(cle); this.cache.set(cle, t);          // remise en tête de l'ordre d'usage
+      return t;
+    }
+    if (!this.enCours.has(cle)) {
+      const [tx, ty] = cle.split("_").map(Number);
+      const essai = () => {
+        this.lectures++;
+        let minuteur;
+        return Promise.race([
+          Promise.resolve().then(() => this.lire(tx, ty)).then(o => this.decoder(o)),
+          new Promise((_, rejet) => { minuteur = setTimeout(() => rejet(new Error("délai dépassé")), this.delaiMs); }),
+        ]).finally(() => clearTimeout(minuteur));
+      };
+      const p = essai().catch(essai).then(t => { this.cache.set(cle, t); return t; }, () => null)
+        .finally(() => this.enCours.delete(cle));
+      this.enCours.set(cle, p);
+    }
+    return this.enCours.get(cle);
+  }
+
+  // Retire les tuiles les moins récemment utilisées au-delà de la capacité, sans toucher à la fenêtre courante
+  elaguer(garder) {
+    for (const cle of this.cache.keys()) {
+      if (this.cache.size <= this.capacite) break;
+      if (!garder.has(cle)) this.cache.delete(cle);
+    }
+  }
+
+  // Fenêtre autour d'un point : { P (structure de recollerTuiles, null si aucune tuile), partielle, manquantes }
+  async fenetre(lon, lat) {
+    const [tx0, ty0] = this.tuileDe(lon, lat);
+    const cles = this.voisines(tx0, ty0, this.rayon);
+    const tuiles = await Promise.all(cles.map(c => this.tuile(c)));
+    const manquantes = cles.filter((_, i) => tuiles[i] === null);
+    const recues = tuiles.filter(t => t !== null);
+    this.elaguer(new Set(cles));
+    const signature = cles.filter((_, i) => tuiles[i] !== null).join(" ");
+    if (!this.derniere || this.derniere.signature !== signature) {
+      this.derniere = { signature, P: recues.length ? recollerTuiles(recues) : null };
+    }
+    return { P: this.derniere.P, partielle: manquantes.length > 0, manquantes, centre: [tx0, ty0] };
+  }
+
+  // Précharge la couronne suivante (rayon + 1) sans bloquer ; les échecs seront retentés à l'usage
+  precharger(lon, lat) {
+    const [tx0, ty0] = this.tuileDe(lon, lat);
+    const fenetre = new Set(this.voisines(tx0, ty0, this.rayon));
+    for (const cle of this.voisines(tx0, ty0, this.rayon + 1)) if (!fenetre.has(cle)) this.tuile(cle);
+  }
+}
+
 if (typeof module !== "undefined") {
   module.exports = { CFG, preparer, construireGraphe, dijkstra, accrocher, tempsGrille, itineraire, etapes, couverture, champIsolignes, accesSecondes, distanceM,
-    GRILLE_FRANCE, decompresserTuile, decoderTuile, recollerTuiles };
+    GRILLE_FRANCE, decompresserTuile, decoderTuile, recollerTuiles, ChargeurTuiles };
 }
 // ===================================== FIN CŒUR =====================================
