@@ -17,6 +17,7 @@ Ce projet dérive d'[À portée de vélo – Marennes-Oléron](https://sit-pmo.g
 7. [Limites connues](#limites-connues)
 8. [Refaire les calculs](#refaire-les-calculs)
 9. [Sources et crédits](#sources-et-crédits)
+10. [Licence](#licence)
 
 ## Ce que mesure la carte
 
@@ -275,3 +276,8 @@ python -m http.server
 - Fond de carte : Plan IGN (Géoplateforme) ; recherche d'adresses : Géoplateforme, avec repli sur l'API Adresse.
 - Bibliothèques : [Leaflet](https://leafletjs.com/), [d3](https://d3js.org/), [QuackOSM](https://github.com/kraina-ai/quackosm), [DuckDB](https://duckdb.org/).
 - Inspiration : [À portée de tram](https://tram.camilleroux.com/) de Camille Roux, issu du [NYC Transit Time Cartogram](https://castrio.me/nyc/) d'Anthony Castrio et de sa [déclinaison parisienne](https://github.com/JulesGrandin/paris-temps-transport) par Jules Grandin. Modèle de calcul repris d'[À portée de vélo – Marennes-Oléron](https://github.com/sit-pmo/portee-velo).
+
+## Licence
+
+- **Code** (`*.py`, `*.js`, `france.html`, tests) : [licence MIT](LICENSE), © Aurélien Chaumet. `coeur.js` et les règles de classement des voies reprennent le code d'[À portée de vélo – Marennes-Oléron](https://github.com/sit-pmo/portee-velo), © PETR Pôle Marennes-Oléron, lui aussi sous licence MIT.
+- **Données** dérivées d'OpenStreetMap (`tuiles/`, `chefs_lieux.json`, `test/fixtures/`) : [Open Database License (ODbL) 1.0](https://opendatacommons.org/licenses/odbl/1-0/), © contributeurs OpenStreetMap. Toute base de données qui en dérive doit rester sous ODbL et citer OpenStreetMap.
