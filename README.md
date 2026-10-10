@@ -201,6 +201,8 @@ Tant que la souris reste dans la même tuile centrale, la fenêtre et les graphe
 
 **Le dessin.** Les temps sont écrits directement dans les pixels d'un `<canvas>` (un pixel par cellule) que Leaflet place et met à l'échelle sur la carte. Les isolignes ne sont tracées que lorsque la souris s'arrête, car c'est l'étape la plus coûteuse.
 
+**Itinéraire au-delà d'une heure.** La carte de chaleur reste bornée à 60 minutes, mais une arrivée posée plus loin a quand même son itinéraire. La page charge alors un couloir de tuiles de 10 km de part et d'autre de la ligne droite départ → arrivée (élargi à 25 km si rien n'est trouvé, par exemple quand le seul pont est loin de la ligne droite), puis lance un Dijkstra qui s'arrête dès que l'arrivée est atteinte. La Rochelle → Royan : 30 tuiles, environ 0,2 s de calcul hors téléchargement. Cela ne vaut que là où il y a des tuiles : la Charente-Maritime et ses abords.
+
 ## Les scores des 96 chefs-lieux
 
 `scores.js` fait tourner, sous Node, exactement le même code que la page : pour chaque mairie, une fenêtre de 3 × 3 tuiles (15 min = 5 km au plus, plus 2 km d'accès au plus, sous la marge de 10 km), le Dijkstra borné à 15 minutes dans chacun des deux modes, puis la somme de l'aire des cellules de terre atteintes. L'aire d'une cellule dépend de sa latitude (la grille est en degrés) : elle est calculée ligne par ligne.

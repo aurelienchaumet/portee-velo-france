@@ -107,7 +107,10 @@ function construireGraphe(P, mode) {
 
 // Dijkstra avec tas binaire ; pred[v] = arc par lequel on arrive en v.
 // limite (secondes, facultative) : aucun nœud au-delà n'est atteint ; ceux en deçà ont leur temps exact.
-function dijkstra(G, src, t0, limite = Infinity) {
+// but (facultatif) : nœud d'arrivée ; le calcul s'arrête dès que son temps est définitif (itinéraire au-delà
+// de la fenêtre de survol). ponytail: pas d'A* ; mesuré sur un couloir de 30 tuiles, l'heuristique coûtait plus
+// qu'elle ne faisait gagner (57 ms contre 38 ms). À reconsidérer pour des couloirs bien plus grands.
+function dijkstra(G, src, t0, limite = Infinity, but = -1) {
   const dist = new Float64Array(G.n).fill(Infinity), pred = new Int32Array(G.n).fill(-1);
   let cap = 4096, hn = new Int32Array(cap), hd = new Float64Array(cap), taille = 0;
   const pousser = (v, d) => {
@@ -137,6 +140,7 @@ function dijkstra(G, src, t0, limite = Infinity) {
       hn[i] = lv; hd[i] = ld;
     }
     if (d > dist[u]) continue;
+    if (u === but) break;                      // arrivée sortie du tas : son temps est définitif
     for (let k = G.off[u], fin = G.off[u + 1]; k < fin; k++) {
       const v = G.cible[k], nd = d + G.poids[k];
       if (nd < dist[v] && nd <= limite) { dist[v] = nd; pred[v] = k; pousser(v, nd); }
@@ -456,7 +460,29 @@ class ChargeurTuiles {
   // Fenêtre autour d'un point : { P (structure de recollerTuiles, null si aucune tuile), partielle, manquantes }
   async fenetre(lon, lat) {
     const [tx0, ty0] = this.tuileDe(lon, lat);
-    const cles = this.voisines(tx0, ty0, this.rayon);
+    return { ...(await this.assembler(this.voisines(tx0, ty0, this.rayon))), centre: [tx0, ty0] };
+  }
+
+  // Couloir de tuiles autour du segment (lon1, lat1) → (lon2, lat2) : celles dont le centre est à moins de
+  // demiLargeurKm du segment (plus une demi-diagonale de tuile). Sert aux itinéraires au-delà de la fenêtre.
+  async couloir(lon1, lat1, lon2, lat2, demiLargeurKm) {
+    const C = GRILLE_FRANCE.cellulesTuile, kx = Math.cos((lat1 + lat2) / 2 * RAD) * 111.32, ky = 111.32;
+    const tl = C * GRILLE_FRANCE.dlon, th = C * GRILLE_FRANCE.dlat, marge = demiLargeurKm + Math.hypot(tl * kx, th * ky) / 2;
+    // Distance (km) d'un point au segment, dans un repère plan local
+    const ax = lon1 * kx, ay = lat1 * ky, bx = lon2 * kx, by = lat2 * ky, l2 = (bx - ax) ** 2 + (by - ay) ** 2 || 1e-9;
+    const dSeg = (x, y) => { const s = Math.max(0, Math.min(1, ((x - ax) * (bx - ax) + (y - ay) * (by - ay)) / l2)); return Math.hypot(x - ax - s * (bx - ax), y - ay - s * (by - ay)); };
+    const [txa, tya] = this.tuileDe(lon1, lat1), [txb, tyb] = this.tuileDe(lon2, lat2);
+    const r = Math.ceil(marge / Math.min(tl * kx, th * ky)), cles = [];
+    for (let ty = Math.min(tya, tyb) - r; ty <= Math.max(tya, tyb) + r; ty++)
+      for (let tx = Math.min(txa, txb) - r; tx <= Math.max(txa, txb) + r; tx++) {
+        const lon = GRILLE_FRANCE.lon0 + (tx + .5) * tl, lat = GRILLE_FRANCE.lat0 - (ty + .5) * th;
+        if (this.existe.has(`${tx}_${ty}`) && dSeg(lon * kx, lat * ky) <= marge) cles.push(`${tx}_${ty}`);
+      }
+    return this.assembler(cles);
+  }
+
+  // Charge et recolle une liste de tuiles (réutilise le dernier recollage si c'est le même ensemble)
+  async assembler(cles) {
     const tuiles = await Promise.all(cles.map(c => this.tuile(c)));
     const manquantes = cles.filter((_, i) => tuiles[i] === null);
     const recues = tuiles.filter(t => t !== null);
@@ -465,7 +491,7 @@ class ChargeurTuiles {
     if (!this.derniere || this.derniere.signature !== signature) {
       this.derniere = { signature, P: recues.length ? recollerTuiles(recues) : null };
     }
-    return { P: this.derniere.P, partielle: manquantes.length > 0, manquantes, centre: [tx0, ty0] };
+    return { P: this.derniere.P, partielle: manquantes.length > 0, manquantes, nb: cles.length };
   }
 
   // Précharge la couronne suivante (rayon + 1) sans bloquer ; les échecs seront retentés à l'usage

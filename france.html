@@ -480,25 +480,62 @@ document.getElementById("replier").addEventListener("click", e => {
     }).join("");
   }
 
-  function majArrivee() {
+  // Arrivée : dans la portée du calcul de survol, l'itinéraire est lu directement ; au-delà, et si `loin` est
+  // demandé (clic, fin de glisser), il est calculé à part sur un couloir de tuiles (itineraireLoin)
+  let demandeLoin = 0;
+  function majArrivee(loin = false) {
+    demandeLoin++;                             // périme un calcul lointain en cours
     trace.clearLayers();
     if (!etat.arrivee) { $("#resultat").hidden = true; $("#consigne").hidden = false; return; }
     $("#consigne").hidden = true; $("#resultat").hidden = false;
     const Gm = vue.G && vue.G[etat.mode], { lat, lng } = etat.arrivee;
     const acc = etat.res && accrocher(vue.P, Gm, lng, lat);
-    if (!acc || !isFinite(etat.res.dist[acc.noeud])) {
-      $("#duree").textContent = "Hors d'atteinte";
-      $("#detail").textContent = etat.mode === "amenage"
-        ? "Cette arrivée n'est pas reliée au départ par les pistes et bandes en moins d'une heure. Essayez le mode « Pistes + routes »."
-        : `Cette arrivée est à plus ${etat.limite === LIMITE_HORS17_S ? "de 15 min" : "d'une heure"} du départ, ou trop loin d'une voie praticable à vélo.`;
-      $("#etapes").innerHTML = "";
+    if (acc && isFinite(etat.res.dist[acc.noeud])) { dessinerTrajet(vue.P, Gm, etat.res, etat.acc, acc); return; }
+    $("#etapes").innerHTML = "";
+    // Tuiles présentes sous l'arrivée (17 et ses abords, ou zone d'une mairie) : l'itinéraire peut se calculer
+    const tuilee = chargeur.existe.has(chargeur.tuileDe(lng, lat).join("_"));
+    if (etat.acc && tuilee) {
+      $("#duree").textContent = loin ? "Calcul…" : "Plus loin";
+      $("#detail").textContent = loin ? "Chargement du réseau entre le départ et l'arrivée." : "Relâchez le repère A pour calculer l'itinéraire.";
+      if (loin) itineraireLoin(demandeLoin);
       return;
     }
-    const P = vue.P, arcs = itineraire(Gm, etat.res, acc.noeud);
-    const total = etat.res.dist[acc.noeud] + accesSecondes(acc.distM);
+    $("#duree").textContent = "Hors d'atteinte";
+    $("#detail").textContent = !etat.acc ? "Le départ n'est relié à aucune voie."
+      : "Cette arrivée est hors de la zone calculée (Charente-Maritime, ou 8 km autour de la mairie d'un chef-lieu).";
+  }
+
+  // Itinéraire au-delà de la fenêtre : couloir de 10 km de part et d'autre de la ligne droite, élargi à 25 km
+  // si rien n'est trouvé (estuaire, pont unique), puis Dijkstra arrêté à l'arrivée. Le survol et la chaleur n'y touchent pas.
+  async function itineraireLoin(id) {
+    const d = etat.depart, a = etat.arrivee, mode = etat.mode;
+    for (const demi of [10, 25]) {
+      const f = await chargeur.couloir(d.lng, d.lat, a.lng, a.lat, demi);
+      if (id !== demandeLoin) return;          // départ, arrivée ou mode changé entre-temps
+      if (!f.P) continue;
+      const G = construireGraphe(f.P, mode);
+      const accD = accrocher(f.P, G, d.lng, d.lat), accA = accrocher(f.P, G, a.lng, a.lat);
+      if (!accD || !accA) break;
+      const res = dijkstra(G, accD.noeud, accesSecondes(accD.distM), Infinity, accA.noeud);
+      if (isFinite(res.dist[accA.noeud])) {
+        dessinerTrajet(f.P, G, res, accD, accA);
+        if (f.partielle) $("#detail").textContent += ". Une partie du réseau n'a pas pu être chargée : itinéraire peut-être plus long que nécessaire.";
+        return;
+      }
+    }
+    $("#duree").textContent = "Pas d'itinéraire";
+    $("#detail").textContent = mode === "amenage"
+      ? "Aucun itinéraire par les pistes et bandes entre ces deux points. Essayez le mode « Pistes + routes »."
+      : "Aucun itinéraire trouvé entre ces deux points, ou l'arrivée est trop loin d'une voie praticable.";
+  }
+
+  function dessinerTrajet(P, Gm, res, accD, acc) {
+    trace.clearLayers();
+    const arcs = itineraire(Gm, res, acc.noeud);
+    const total = res.dist[acc.noeud] + accesSecondes(acc.distM);
     let long = 0, amenage = 0;
     for (const k of arcs) { const e = Gm.arete[k]; long += P.lm[e]; if (P.cls[e] <= 1) amenage += P.lm[e]; }
-    const distance = long + (etat.acc.distM + acc.distM) * CFG.detourAcces;
+    const distance = long + (accD.distM + acc.distM) * CFG.detourAcces;
     const pt = v => [P.lat[v], P.lon[v]];
     const tout = arcs.length ? [pt(Gm.source[arcs[0]]), ...arcs.map(k => pt(Gm.cible[k]))] : [pt(acc.noeud)];
     L.polyline(tout, { pane: "trace", color: "#fff", weight: 8, opacity: .95, interactive: false }).addTo(trace);
@@ -511,7 +548,7 @@ document.getElementById("replier").addEventListener("click", e => {
     }
     fermer();
     const tirets = { pane: "trace", color: "#13252B", weight: 2, dashArray: "3 5", interactive: false };
-    L.polyline([etat.depart, pt(etat.acc.noeud)], tirets).addTo(trace);
+    L.polyline([etat.depart, pt(accD.noeud)], tirets).addTo(trace);
     L.polyline([pt(acc.noeud), etat.arrivee], tirets).addTo(trace);
     $("#duree").textContent = fmtMin(total);
     $("#detail").textContent = `${fmtKm(distance)}, dont ${fmtKm(amenage)} sur piste ou bande cyclable (${Math.round(distance ? amenage / distance * 100 : 0)} %)`;
@@ -528,7 +565,7 @@ document.getElementById("replier").addEventListener("click", e => {
       dessinerChaleur(new Float32Array(g.nx * g.ny).map((_, k) => (g.dedans[k] ? Infinity : NaN)));
       iso.clearLayers(); afficherCouverture(null);
       afficherMessage(`Ce départ est à plus de ${CFG.accesMaxM[etat.mode]} m du réseau. Rapprochez le repère D d'une voie${etat.mode === "amenage" ? " ou passez en mode « Pistes + routes »" : ""}.`);
-      majArrivee(); if (complet) majLien();
+      majArrivee(complet); if (complet) majLien();
       return;
     }
     afficherMessage("");
@@ -539,7 +576,7 @@ document.getElementById("replier").addEventListener("click", e => {
     afficherCouverture(etat.minutes);
     if (complet) { dessinerIsolignes(etat.minutes); majLien(); }
     else iso.clearLayers();
-    majArrivee();
+    majArrivee(complet);
   }
 
   // ---------- Placement du départ : charge la fenêtre si on change de tuile centrale ----------
@@ -576,11 +613,11 @@ document.getElementById("replier").addEventListener("click", e => {
     image_prevue = true;
     requestAnimationFrame(() => { image_prevue = false; placerDepart(enAttente, false); });
   }
-  function definirArrivee(ll) { etat.arrivee = L.latLng(ll); marqueurArrivee.setLatLng(etat.arrivee).addTo(carte); majArrivee(); majLien(); }
+  function definirArrivee(ll) { etat.arrivee = L.latLng(ll); marqueurArrivee.setLatLng(etat.arrivee).addTo(carte); majArrivee(true); majLien(); }
   marqueurDepart.on("drag", ev => planifierDepart(ev.latlng));
   marqueurDepart.on("dragend", () => placerDepart(marqueurDepart.getLatLng(), true));
   marqueurArrivee.on("drag", ev => { etat.arrivee = ev.latlng; majArrivee(); });
-  marqueurArrivee.on("dragend", () => { etat.arrivee = marqueurArrivee.getLatLng(); majArrivee(); majLien(); });
+  marqueurArrivee.on("dragend", () => { etat.arrivee = marqueurArrivee.getLatLng(); majArrivee(true); majLien(); });
 
   // ---------- Survol : le départ suit la souris (écrans à pointeur fin uniquement) ----------
   const survolPossible = window.matchMedia("(hover: hover) and (pointer: fine)").matches;
