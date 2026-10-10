@@ -19,3 +19,8 @@
 - **Why** : demande d'Aurélien (10/10/2026) ; le dépôt est public et le README est la porte d'entrée.
 - **Context** : schémas en ASCII ou Mermaid (rendu natif par GitHub). Reprendre les diagrammes du design et de la revue d'ingénierie, mis à jour avec ce qui a réellement été codé.
 - **Depends on** : fin des tâches T1 à T9.
+
+## Vérifier la fluidité du survol (Aurélien, plus tard)
+- **What** : retester le survol après le passage au canvas direct (commit ac562f0) ; si c'est encore lent, dire si c'est en continu, par à-coups en changeant de zone, ou à l'arrêt de la souris.
+- **Why** : retour du 10/10/2026 « ça fonctionne mais c'est un poil lent à l'affichage ».
+- **Context** : leviers suivants selon le cas : limiter grille/surfaces à la zone atteignable en 60 min ; précharger plus tôt ; isolignes plus légères.
