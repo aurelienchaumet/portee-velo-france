@@ -377,6 +377,9 @@ document.getElementById("replier").addEventListener("click", e => {
   });
   const iso = L.layerGroup().addTo(carte);
   const reseau = L.layerGroup();
+  // Un seul moteur de rendu pour le réseau : en recréer un à chaque fenêtre empilait des canvas jamais retirés
+  // de la carte, chacun redessiné à chaque déplacement (ralentissement progressif au fil du survol)
+  const rendu = L.canvas({ pane: "reseau", padding: 0.3 });
   const trace = L.layerGroup().addTo(carte);
   $("#voir-reseau").addEventListener("change", ev => { if (ev.target.checked) reseau.addTo(carte); else reseau.remove(); });
 
@@ -402,7 +405,7 @@ document.getElementById("replier").addEventListener("click", e => {
     } else chaleur.setBounds(bornes);
     // Réseau cyclable de la fenêtre par-dessus la chaleur : trait blanc fin (pistes), tirets (bandes)
     reseau.clearLayers();
-    const rendu = L.canvas({ pane: "reseau", padding: 0.3 }), segments = [[], []], P = vue.P;
+    const segments = [[], []], P = vue.P;
     for (let e = 0; e < P.m; e++) {
       const c = P.cls[e];
       if (c <= 1) segments[c].push([[P.lat[P.a[e]], P.lon[P.a[e]]], [P.lat[P.b[e]], P.lon[P.b[e]]]]);
