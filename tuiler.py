@@ -212,11 +212,23 @@ class MasqueTerre:
         return shapely.contains_xy(sol, clon, clat)
 
 
+def ecrire_controle(chemin, n, a, b, l_dm, attr):
+    """Empreinte du graphe avant découpage : le recollage de toutes les tuiles doit la retrouver à l'identique.
+
+    Chaque arête devient "a,b,l,attr" (identifiants globaux) ; lignes triées, sha256 (même calcul dans le test JS).
+    """
+    import hashlib
+    lignes = sorted(f"{x},{y},{z},{w}" for x, y, z, w in zip(a.tolist(), b.tolist(), l_dm.tolist(), attr.tolist()))
+    chemin.write_text(json.dumps({"noeuds": n, "aretes": len(lignes),
+                                  "empreinte": hashlib.sha256("\n".join(lignes).encode()).hexdigest()}), "utf-8")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--parquet", action="append", required=True, help="GeoParquet produit par extraire.py (répétable)")
     ap.add_argument("--emprise", action="append", required=True, help="lon_min,lat_min,lon_max,lat_max (répétable)")
     ap.add_argument("--sortie", default="tuiles", help="dossier des tuiles")
+    ap.add_argument("--controle", help="écrit l'empreinte du graphe complet (test de recollage sans perte)")
     args = ap.parse_args()
     t0 = time.time()
     emprises = [tuple(float(v) for v in e.split(",")) for e in args.emprise]
@@ -306,6 +318,8 @@ def main():
         (sortie / f"{tx0}_{ty0}.bin").write_bytes(octets)
         octets_total += len(octets)
         index.append([tx0, ty0, base, fin - base])
+    if args.controle:
+        ecrire_controle(Path(args.controle), len(lon), a, b, l_dm, attr_code)
     (sortie / "tuiles.json").write_text(json.dumps({
         "version": 1, "genere": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "sources": [Path(p).name for p in args.parquet], "terre": TERRE_ZIP.name,

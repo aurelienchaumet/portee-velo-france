@@ -73,8 +73,9 @@ function construireGraphe(P, mode) {
   return { mode, n, nArcs, off, cible, source, poids, arete, actif };
 }
 
-// Dijkstra avec tas binaire ; pred[v] = arc par lequel on arrive en v
-function dijkstra(G, src, t0) {
+// Dijkstra avec tas binaire ; pred[v] = arc par lequel on arrive en v.
+// limite (secondes, facultative) : aucun nœud au-delà n'est atteint ; ceux en deçà ont leur temps exact.
+function dijkstra(G, src, t0, limite = Infinity) {
   const dist = new Float64Array(G.n).fill(Infinity), pred = new Int32Array(G.n).fill(-1);
   let cap = 4096, hn = new Int32Array(cap), hd = new Float64Array(cap), taille = 0;
   const pousser = (v, d) => {
@@ -106,7 +107,7 @@ function dijkstra(G, src, t0) {
     if (d > dist[u]) continue;
     for (let k = G.off[u], fin = G.off[u + 1]; k < fin; k++) {
       const v = G.cible[k], nd = d + G.poids[k];
-      if (nd < dist[v]) { dist[v] = nd; pred[v] = k; pousser(v, nd); }
+      if (nd < dist[v] && nd <= limite) { dist[v] = nd; pred[v] = k; pousser(v, nd); }
     }
   }
   return { dist, pred, src };
@@ -262,8 +263,79 @@ function decoderTuile(o) {
   return { tx, ty, base, n, m, lon, lat, a, b, l, attr, ncx, ncy, terre, proTout, proAmen, distTout, distAmen };
 }
 
+// Recolle des tuiles décodées en une structure identique à celle de preparer() : construireGraphe(),
+// dijkstra(), accrocher() et tempsGrille() s'en servent sans changement.
+// Une arête appartient à la tuile de son nœud a ; si son nœud b est dans une tuile non chargée, elle est
+// écartée (elle est au bord de la fenêtre, hors du rayon de calcul). Grille = rectangle des tuiles reçues,
+// les tuiles absentes y sont des cellules vides (ni terre ni nœud).
+function recollerTuiles(tuiles) {
+  const C = GRILLE_FRANCE.cellulesTuile;
+  // Table identifiant global → index fusionné : les identifiants sont contigus par tuile (base .. base+n-1)
+  // Les tuiles sans nœud (mer) partagent leur base avec la suivante : on les exclut de la table,
+  // sinon la recherche peut tomber sur elles selon l'ordre de chargement (bug attrapé par le test d'ordre)
+  const blocs = tuiles.filter(t => t.n > 0).map(t => ({ t, base: t.base, n: t.n })).sort((x, y) => x.base - y.base);
+  let n = 0;
+  for (const bl of blocs) { bl.decalage = n; n += bl.n; }
+  const bases = Float64Array.from(blocs, bl => bl.base);
+  const indice = gid => {
+    let lo = 0, hi = blocs.length - 1;
+    while (lo <= hi) {                                    // recherche dichotomique du bloc contenant gid
+      const mi = (lo + hi) >> 1;
+      if (bases[mi] <= gid) lo = mi + 1; else hi = mi - 1;
+    }
+    const bl = blocs[hi];
+    return bl && gid < bl.base + bl.n ? bl.decalage + (gid - bl.base) : -1;
+  };
+  const lon = new Float64Array(n), lat = new Float64Array(n), global = new Float64Array(n);  // global : index fusionné → identifiant
+  let mTotal = 0;
+  for (const { t, decalage } of blocs) {
+    for (let i = 0; i < t.n; i++) {
+      lon[decalage + i] = t.lon[i] / 1e5; lat[decalage + i] = t.lat[i] / 1e5; global[decalage + i] = t.base + i;
+    }
+    mTotal += t.m;
+  }
+  const a = new Int32Array(mTotal), b = new Int32Array(mTotal), lm = new Float32Array(mTotal);
+  const cls = new Uint8Array(mTotal), sens = new Uint8Array(mTotal), vit = new Uint8Array(mTotal);
+  let m = 0, ecartees = 0;
+  for (const { t } of blocs) {
+    for (let e = 0; e < t.m; e++) {
+      const ia = indice(t.a[e]), ib = indice(t.b[e]);
+      if (ia < 0 || ib < 0) { ecartees++; continue; }
+      const at = t.attr[e];
+      a[m] = ia; b[m] = ib; lm[m] = t.l[e] / 10; cls[m] = at & 7; sens[m] = (at >> 3) & 3; vit[m] = at >> 5;
+      m++;
+    }
+  }
+  // Grille du rectangle couvrant les tuiles
+  const txMin = Math.min(...tuiles.map(t => t.tx)), txMax = Math.max(...tuiles.map(t => t.tx));
+  const tyMin = Math.min(...tuiles.map(t => t.ty)), tyMax = Math.max(...tuiles.map(t => t.ty));
+  const nx = (txMax - txMin + 1) * C, ny = (tyMax - tyMin + 1) * C, N = nx * ny;
+  const terre = new Uint8Array(N);
+  const pro = { tout: new Int32Array(N).fill(-1), amenage: new Int32Array(N).fill(-1) };
+  const dist = { tout: new Float32Array(N).fill(Infinity), amenage: new Float32Array(N).fill(Infinity) };
+  for (const t of tuiles) {
+    const ox = (t.tx - txMin) * C, oy = (t.ty - tyMin) * C;
+    for (let j = 0; j < C; j++) for (let i = 0; i < C; i++) {
+      const s = j * C + i, k = (oy + j) * nx + ox + i;
+      terre[k] = t.terre[s];
+      if (t.proTout[s] >= 0) { pro.tout[k] = indice(t.proTout[s]); dist.tout[k] = t.distTout[s]; }
+      if (t.proAmen[s] >= 0) { pro.amenage[k] = indice(t.proAmen[s]); dist.amenage[k] = t.distAmen[s]; }
+    }
+  }
+  return {
+    n, m, lon, lat, global, lm: lm.subarray(0, m), cls: cls.subarray(0, m), sens: sens.subarray(0, m), vit: vit.subarray(0, m),
+    a: a.subarray(0, m), b: b.subarray(0, m), nom: new Int32Array(m), noms: [""], ecartees,
+    grille: {
+      w: GRILLE_FRANCE.lon0 + txMin * C * GRILLE_FRANCE.dlon, n: GRILLE_FRANCE.lat0 - tyMin * C * GRILLE_FRANCE.dlat,
+      dlon: GRILLE_FRANCE.dlon, dlat: GRILLE_FRANCE.dlat, nx, ny,
+      dedans: terre, ile: terre, pro, dist,
+    },
+    idGlobal: g => indice(g),
+  };
+}
+
 if (typeof module !== "undefined") {
   module.exports = { CFG, preparer, construireGraphe, dijkstra, accrocher, tempsGrille, itineraire, etapes, couverture, champIsolignes, accesSecondes, distanceM,
-    GRILLE_FRANCE, decompresserTuile, decoderTuile };
+    GRILLE_FRANCE, decompresserTuile, decoderTuile, recollerTuiles };
 }
 // ===================================== FIN CŒUR =====================================
