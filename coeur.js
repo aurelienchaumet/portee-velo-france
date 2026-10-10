@@ -12,8 +12,8 @@ const CFG = {
   vitesseAccesKmh: 16,                 // accès au réseau hors voies (base vélo 20 km/h ×0,8)
   detourAcces: 1.3,
   accesMaxM: { tout: 2000, amenage: 800 },   // 2 km : couvre les marais de la Seudre, à 1,7 km de toute voie
-  traverseeMaxM: 30,
-  morceauMinNoeuds: 200,               // mode pistes : un départ ne s'accroche pas à un bout de piste isolé                   // mode pistes : segment de route < 30 m au contact d'une piste = traversée praticable
+  traverseeMaxM: 30,                   // mode pistes : segment de route < 30 m au contact d'une piste = traversée praticable
+  morceauMinNoeuds: 200,               // mode pistes : un départ ne s'accroche pas à un bout de piste isolé (taille comptée dans la fenêtre chargée)
 };
 const R_TERRE = 6371008.8, RAD = Math.PI / 180;
 

@@ -46,9 +46,14 @@ test("l'ordre de chargement des tuiles ne change rien", async () => {
 });
 
 // Calcule les minutes par cellule depuis un point, avec une borne en secondes
-function minutes(P, mode, lonlat, limite) {
+// depart (facultatif) : identifiant global du nœud de départ, pour partir du même nœud dans deux graphes
+function minutes(P, mode, lonlat, limite, depart) {
   const G = C.construireGraphe(P, mode);
-  const acc = C.accrocher(P, G, ...lonlat);
+  let acc = C.accrocher(P, G, ...lonlat);
+  if (depart !== undefined) {
+    const v = P.idGlobal(depart);
+    acc = { noeud: v, distM: C.distanceM(lonlat[0], lonlat[1], P.lon[v], P.lat[v]) };
+  }
   const res = C.dijkstra(G, acc.noeud, C.accesSecondes(acc.distM), limite);
   return { G, res, min: C.tempsGrille(P, G, res) };
 }
@@ -62,7 +67,10 @@ test("fenêtre 3 × 3 = graphe complet sous 30 min (invariant de marge : 30 min 
   const PF = C.recollerTuiles(tuiles), PW = C.recollerTuiles(fenetre);
   assert.ok(PW.ecartees > 0, "des arêtes sortent bien de la fenêtre");
   for (const mode of ["tout", "amenage"]) {
-    const F = minutes(PF, mode, SAINT_PIERRE, 1800), W = minutes(PW, mode, SAINT_PIERRE, 1800);
+    // Même nœud de départ dans les deux graphes : en mode pistes, la taille des morceaux (accrochage) se
+    // compte dans la fenêtre chargée et peut différer ; on teste ici le recollage et le Dijkstra.
+    const F = minutes(PF, mode, SAINT_PIERRE, 1800);
+    const W = minutes(PW, mode, SAINT_PIERRE, 1800, PF.global[C.accrocher(PF, F.G, ...SAINT_PIERRE).noeud]);
     // Nœuds : même temps, identifiés par leur numéro global
     const tempsF = new Map();
     for (let v = 0; v < PF.n; v++) if (isFinite(F.res.dist[v])) tempsF.set(PF.global[v], F.res.dist[v]);
