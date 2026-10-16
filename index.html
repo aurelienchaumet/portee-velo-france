@@ -240,6 +240,12 @@ button:focus-visible,input:focus-visible,.leaflet-marker-icon:focus-visible{outl
 .outils button{display:grid;place-items:center;width:34px;height:34px;border:0;border-radius:8px;background:transparent;color:#c9edf5;cursor:pointer}
 .outils button:hover{background:rgba(255,255,255,.12);color:#fff}
 .outils svg{width:19px;height:19px}
+/* Sélecteur de territoire (phase 2, 16/10/2026) : métropole (le 17 pour l'instant) et les 5 DROM */
+.choix-zone{display:block;margin:.5rem 0 0}
+.choix-zone select{font:500 .85rem var(--sans);color:#fff;background:rgba(255,255,255,.1);border:1px solid rgba(201,237,245,.45);border-radius:8px;padding:5px 8px;max-width:100%;cursor:pointer}
+.choix-zone select:hover,.choix-zone select:focus-visible{background:rgba(255,255,255,.18);border-color:#c9edf5}
+.choix-zone option{color:#1E2529;background:#fff}
+@media (max-width:720px){.choix-zone{margin:.35rem 0 0}.choix-zone select{font-size:.8rem;padding:3px 6px}}
 .entete{position:relative}
 .toast{position:absolute;top:52px;right:14px;z-index:2;max-width:250px;margin:0;padding:7px 10px;border-radius:8px;background:var(--encre);color:#fff;font-size:.8rem;box-shadow:0 4px 12px rgba(0,0,0,.25)}
 @media (max-width:720px){.outils{top:11px;right:96px}.toast{top:48px;right:8px}}
@@ -327,6 +333,16 @@ dialog.apropos .fermer{position:absolute;top:10px;right:10px;width:34px;height:3
   <header class="entete">
     <button type="button" class="replier" id="replier" aria-expanded="true"><span class="texte">Replier</span> <span class="fleche" aria-hidden="true">▾</span></button>
     <h1>À portée de vélo</h1>
+    <label class="choix-zone" title="Changer de territoire"><span hidden>Territoire</span>
+      <select id="zone" aria-label="Territoire">
+        <option value="fr">Charente-Maritime</option>
+        <option value="971">Guadeloupe</option>
+        <option value="972">Martinique</option>
+        <option value="973">Guyane</option>
+        <option value="974">La Réunion</option>
+        <option value="976">Mayotte</option>
+      </select>
+    </label>
     <p>Jusqu'où va-t-on à vélo depuis chaque point du territoire, et dans quel confort, d'après OpenStreetMap</p>
     <!-- Lien et crédits en icônes (13/10/2026) : ils tenaient le bas de chaque onglet -->
     <div class="outils">
@@ -576,6 +592,12 @@ document.getElementById("replier").addEventListener("click", e => {
   // de tuiles par territoire (tuiles/<zone>/), la grille est lue dans tuiles.json
   const ZONE = /^(fr|97[1-46])$/.test(new URLSearchParams(location.search).get("zone")) ? new URLSearchParams(location.search).get("zone") : "fr";
   const DOSSIER = `tuiles/${ZONE}/`;
+  // Sélecteur de territoire : recharge la page sur l'autre grille (sans le lien de la vue : départ, tronçons…
+  // n'ont pas de sens ailleurs). Branché avant le chargement, pour rester utilisable si les données manquent.
+  $("#zone").value = ZONE;
+  $("#zone").addEventListener("change", ev => {
+    location.href = location.pathname + (ev.target.value === "fr" ? "" : `?zone=${ev.target.value}`);
+  });
   let index, contourDep;
   try {
     [index, contourDep] = await Promise.all([DOSSIER + "tuiles.json", DOSSIER + "contour.json"].map(u => fetch(u).then(r => {
