@@ -1,19 +1,53 @@
 // coeur.js : cœur de calcul d'« À portée de vélo » (sans DOM, testable sous Node).
-// Partagé par index.html et comparer.html : préparation des données, graphe, Dijkstra, temps par cellule,
+// Utilisé par index.html : préparation des données, graphe, Dijkstra, temps par cellule,
 // couverture et champ d'isolignes.
 // ======================= CŒUR (sans DOM, testable sous Node) =======================
-// Pénalités par classe : 0 piste, 1 bande, 2 route/chemin, 3 secondaire, 4 principale
+// Pénalités par classe : 0 piste, 1 bande, 2 rues/service, 3 secondaire, 4 principale, 5 voie communale
+// (unclassified), 6 chemin, 7 départementale tertiaire. Temps réels (11/10/2026) : +5 % sur route seulement, pour
+// qu'à temps quasi égal le trajet prenne la piste qui longe la route (les majorations ×1,5 / ×2 / ×3 de la carte
+// Marennes-Oléron d'origine donnaient des temps irréalistes ; test/non_regression.js les remet pour comparer).
+// confort = trajet tranquille : chaque minute sur route exposée (CFG.confort.classes ≥ 2) compte pour 4.
 const CFG = {
   penalites: {
-    tout:    [1, 1.1, 1.5, 2, 3],      // principales sans aménagement : autorisées mais ×3 (sinon elles coupent le réseau)
-    amenage: [1, 1, Infinity, Infinity, Infinity],
+    tout:    [1, 1, 1.05, 1.05, 1.05, 1.05, 1.05, 1.05],
+    amenage: [1, 1, Infinity, Infinity, Infinity, Infinity, Infinity, Infinity],
+    confort: [1, 1, 1.05, 4, 4, 1.05, 1.05, 4],
+    // Sans les départementales (13/10/2026) : réseau « tout » privé des RD (P.rd : couche du Département dans le 17,
+    // marquer_rd.py ; tertiaire et secondaire OSM au-delà, 14/10/2026) et des routes principales (nationales).
+    // Seules les traversées restent permises (CFG.traverseeDepMaxM) : la route est interdite, pas seulement
+    // pénalisée, donc un hameau desservi par la seule départementale en est coupé (note sur Saint-Georges, index.html).
+    sansdep: [1, 1, 1.05, 1.05, Infinity, 1.05, 1.05, 1.05],
   },
+  // Confort par classe (option A figée le 11/10/2026) : 0 aménagé, 1 calme, 2 exposé, 3 très exposé ; voies
+  // communales calmes malgré les 80 km/h possibles en rural. Teinte : bleu si le trajet tranquille coûte au plus
+  // +20 % (ou +1 min) de plus que le plus rapide, gris jusqu'à +50 %, orange au-delà. Autour du départ
+  // (departLibreM), la route exposée n'est pas pénalisée : on part de chez soi par la rue qu'on a.
+  confort: { classes: [0, 0, 1, 3, 3, 1, 1, 2], departLibreM: 300, surcout: [1.2, 1.5], surcoutMin: 1 },
   vitesseContreSensKmh: 5,             // sens unique pris à contre-sens : vélo poussé à pied, plutôt qu'interdit
   vitesseAccesKmh: 16,                 // accès au réseau hors voies (base vélo 20 km/h ×0,8)
   detourAcces: 1.3,
-  accesMaxM: { tout: 2000, amenage: 800 },   // 2 km : couvre les marais de la Seudre, à 1,7 km de toute voie
+  accesMaxM: { tout: 2000, amenage: 800, confort: 2000, sansdep: 800 },   // 2 km : couvre les marais de la Seudre, à 1,7 km de toute voie
+                                       // sansdep : 800 m comme en mode pistes, sinon un bord de départementale serait « atteint » à travers champs
+  // Sans départementales : traversée = enchaînement de départementale d'au plus traverseeDepMaxM entre deux accès
+  // distincts au réseau permis (carrefour décalé, giratoire). 80 m : il en faut autant pour sortir du port du
+  // Château-d'Oléron par les giratoires de la D734 (à 50 m, le port reste une île de 2 km²). ponytail: une
+  // départementale bordée de rues tous les 80 m reste empruntable de proche en proche ; les tuiles ne distinguent
+  // pas giratoire et route.
+  traverseeDepMaxM: 80,
   traverseeMaxM: 30,                   // mode pistes : segment de route < 30 m au contact d'une piste = traversée praticable
-  morceauMinNoeuds: 200,               // mode pistes : un départ ne s'accroche pas à un bout de piste isolé (taille comptée dans la fenêtre chargée)
+  liaisonMaxM: 200,                    // mode pistes : liaison entre deux pistes par voie calme (rue, voie communale, chemin), longueur max
+  // Coefficient de longueur par classe dans une liaison : voie calme 1, route exposée 2 (donc ≤ 100 m : 47 m de
+  // départementale entre deux pistes au canal de Lachenaud coupaient le réseau). Pistes et bandes : sources, pas liaisons.
+  // Tuiles du 17 : 2 rues/service, 3 secondaire, 4 principale, 5 unclassified, 6 chemins, 7 tertiaire
+  liaisonFacteur: [0, 0, 1, 2, 2, 1, 1, 2],
+  morceauMinM: 1000,                   // mode pistes : un départ ne s'accroche qu'à un morceau d'au moins 1 km de voies (longueur comptée dans la fenêtre chargée).
+                                       // Avant le 11/10/2026 : 200 nœuds, ce qui écartait la piste de Sauzelle (3 km, 187 nœuds)
+  // Simulation de tronçons (12/10/2026) : sommet raccordé au nœud existant le plus proche à 25 m au plus (comme
+  // RACCORD_MAX_M de la carte d'origine) ; segments découpés tous les 100 m pour que les cellules longées aient un
+  // nœud proche ; piste simulée classe 0, double sens, 20 km/h (vitesse de base)
+  raccordMaxM: 25,
+  pasTronconM: 100,
+  vitesseSimuleeKmh: 20,
 };
 const R_TERRE = 6371008.8, RAD = Math.PI / 180;
 
@@ -29,14 +63,15 @@ function preparer(D) {
   const n = D.noeuds.lon.length, m = D.aretes.a.length;
   const lon = new Float64Array(n), lat = new Float64Array(n);
   for (let i = 0; i < n; i++) { lon[i] = D.noeuds.lon[i] / 1e5; lat[i] = D.noeuds.lat[i] / 1e5; }
-  const lm = new Float32Array(m), cls = new Uint8Array(m), sens = new Uint8Array(m), vit = new Uint8Array(m);
+  const lm = new Float32Array(m), cls = new Uint8Array(m), sens = new Uint8Array(m), vit = new Uint8Array(m), rd = new Uint8Array(m);
   for (let e = 0; e < m; e++) {
     const t = D.aretes.attr[e];
     lm[e] = D.aretes.l[e] / 10; cls[e] = t & 7; sens[e] = (t >> 3) & 3; vit[e] = t >> 5;
+    rd[e] = cls[e] === 3 || cls[e] === 7 ? 1 : 0;   // ancien format, sans couche du Département : RD = classes OSM
   }
   const g = D.grille;
   return {
-    n, m, lon, lat, lm, cls, sens, vit,
+    n, m, lon, lat, lm, cls, sens, vit, rd,
     a: Int32Array.from(D.aretes.a), b: Int32Array.from(D.aretes.b), nom: Int32Array.from(D.aretes.nom),
     noms: D.noms,
     grille: {
@@ -57,15 +92,20 @@ function construireGraphe(P, mode) {
   // ou une bande est praticable (au coût du mode « tout ») : traversées de chaussée et raccords entre deux
   // pistes, qu'OSM classe en route. Sans ça, le réseau de pistes est en miettes (Lyon : 4 nœuds atteints
   // depuis la mairie). Un seul segment au contact d'une piste : la règle ne se propage pas le long d'une route.
-  const penCls = CFG.penalites[mode], penE = new Float32Array(m);
+  // Mode sans départementales : même règle de traversée, sans les liaisons (réservées aux pistes).
+  const penCls = CFG.penalites[mode], penE = new Float32Array(m), restreint = mode === "amenage" || mode === "sansdep";
+  const pen0 = mode === "sansdep" ? e => (P.rd[e] ? Infinity : penCls[P.cls[e]]) : e => penCls[P.cls[e]];
   let touche = null;
-  if (mode === "amenage") {
+  if (restreint) {
     touche = new Uint8Array(n);
-    for (let e = 0; e < m; e++) if (isFinite(penCls[P.cls[e]])) { touche[P.a[e]] = 1; touche[P.b[e]] = 1; }
+    for (let e = 0; e < m; e++) if (isFinite(pen0(e))) { touche[P.a[e]] = 1; touche[P.b[e]] = 1; }
   }
+  const liaison = mode === "amenage" ? liaisons(P, touche)
+    : mode === "sansdep" ? liaisons(P, touche, CFG.traverseeDepMaxM, e => (isFinite(pen0(e)) ? 0 : 1))
+    : null;
   for (let e = 0; e < m; e++) {
-    let p = penCls[P.cls[e]];
-    if (!isFinite(p) && touche && P.lm[e] < CFG.traverseeMaxM && (touche[P.a[e]] || touche[P.b[e]]))
+    let p = pen0(e);
+    if (!isFinite(p) && touche && ((P.lm[e] < CFG.traverseeMaxM && (touche[P.a[e]] || touche[P.b[e]])) || (liaison && liaison[e])))
       p = CFG.penalites.tout[P.cls[e]];
     penE[e] = p;
   }
@@ -89,20 +129,99 @@ function construireGraphe(P, mode) {
     actif[a] = 1; actif[b] = 1;
   }
   // Nœuds où un départ peut s'accrocher. Mode pistes : seulement les morceaux d'au moins
-  // CFG.morceauMinNoeuds nœuds ; sinon le départ tombe sur un bout de piste isolé à 50 m (Lyon : 7 nœuds)
+  // CFG.morceauMinM mètres ; sinon le départ tombe sur un bout de piste isolé à 50 m (Lyon : 7 nœuds)
   // alors que le vrai réseau (27 000 nœuds) est à 240 m. Mode tout : le graphe est déjà d'un seul tenant.
+  // Sans départementales : même règle (une impasse coupée par la départementale n'est pas un départ).
   let accrochable = actif;
-  if (mode === "amenage") {
+  if (restreint) {
     const parent = new Int32Array(n);
     for (let v = 0; v < n; v++) parent[v] = v;
     const racine = x => { while (parent[x] !== x) { parent[x] = parent[parent[x]]; x = parent[x]; } return x; };
     for (let k = 0; k < nArcs; k++) { const ra = racine(source[k]), rb = racine(cible[k]); if (ra !== rb) parent[ra] = rb; }
-    const taille = new Int32Array(n);
-    for (let v = 0; v < n; v++) if (actif[v]) taille[racine(v)]++;
+    const taille = new Float64Array(n);       // longueur (m) des arêtes praticables de chaque morceau
+    for (let e = 0; e < m; e++) if (isFinite(penE[e])) taille[racine(P.a[e])] += P.lm[e];
     accrochable = new Uint8Array(n);
-    for (let v = 0; v < n; v++) accrochable[v] = actif[v] && taille[racine(v)] >= CFG.morceauMinNoeuds ? 1 : 0;
+    for (let v = 0; v < n; v++) accrochable[v] = actif[v] && taille[racine(v)] >= CFG.morceauMinM ? 1 : 0;
   }
-  return { mode, n, nArcs, off, cible, source, poids, arete, actif, accrochable };
+  const G = { mode, n, nArcs, off, cible, source, poids, arete, actif, accrochable };
+  if (mode === "sansdep" && !P.grille.pro.sansdep) rattacherGrille(P, G);
+  return G;
+}
+
+// Sans départementales : les tuiles ne donnent le nœud le plus proche de chaque cellule que pour « tout » et « pistes ».
+// On garde celui de « tout » quand il reste praticable ; sinon (nœud au milieu d'une départementale) on cherche, comme
+// accrocher, le plus proche nœud praticable parmi ceux des cellules voisines, à CFG.accesMaxM.sansdep au plus.
+// Écrit P.grille.pro.sansdep et dist.sansdep (une fois par fenêtre, à la construction du graphe).
+function rattacherGrille(P, G) {
+  const g = P.grille, N = g.nx * g.ny, pro0 = g.pro.tout, d0 = g.dist.tout, max = CFG.accesMaxM[G.mode];
+  const pro = pro0.slice(), dist = d0.slice();
+  for (let k = 0; k < N; k++) {
+    const v0 = pro0[k];
+    if (v0 < 0 || G.actif[v0]) continue;
+    const i0 = k % g.nx, j0 = (k - i0) / g.nx, lon = g.w + (i0 + 0.5) * g.dlon, lat = g.n - (j0 + 0.5) * g.dlat;
+    const cote = Math.min(g.dlat * RAD * R_TERRE, g.dlon * RAD * R_TERRE * Math.cos(lat * RAD));
+    const anneaux = Math.ceil(max / cote) + 1;
+    let meilleur = -1, dMin = Infinity;
+    const essayer = (i, j) => {
+      if (i < 0 || j < 0 || i >= g.nx || j >= g.ny) return;
+      const v = pro0[j * g.nx + i];
+      if (v < 0 || !G.actif[v]) return;
+      const d = distanceM(lon, lat, P.lon[v], P.lat[v]);
+      if (d < dMin) { dMin = d; meilleur = v; }
+    };
+    for (let r = 1; r <= anneaux; r++) {
+      if ((r - 1) * cote > dMin) break;
+      for (let q = -r; q <= r; q++) {
+        essayer(i0 + q, j0 - r); essayer(i0 + q, j0 + r);
+        if (q > -r && q < r) { essayer(i0 - r, j0 + q); essayer(i0 + r, j0 + q); }
+      }
+    }
+    pro[k] = meilleur; dist[k] = meilleur < 0 ? Infinity : dMin;
+  }
+  g.pro.sansdep = pro; g.dist.sansdep = dist;
+}
+
+// Mode pistes : arêtes de voirie formant un chemin court (longueur pondérée par CFG.liaisonFacteur ≤ CFG.liaisonMaxM)
+// entre deux nœuds de piste distincts (touche[v] = 1). Dijkstra multi-source borné depuis toutes les pistes (source
+// virtuelle n) ; une arête dont les deux bouts viennent de pistes différentes, avec d(u) + l + d(v) ≤ max, est une
+// liaison : on la garde avec les arêtes qui remontent à chaque piste. Une rue en impasse au bout d'une piste n'est pas retenue.
+function liaisons(P, touche, max = CFG.liaisonMaxM, f = CFG.liaisonFacteur) {
+  const n = P.n, m = P.m;
+  // f : coefficient de longueur par classe, ou fonction e → coefficient (sans départementales : selon P.rd) ;
+  // 0 = arête hors liaison (pistes et bandes)
+  const fe = typeof f === "function" ? Float32Array.from({ length: m }, (_, e) => f(e)) : Float32Array.from(P.cls, c => f[c]);
+  const off = new Uint32Array(n + 2);
+  let nSrc = 0;
+  for (let v = 0; v < n; v++) if (touche[v]) nSrc++;
+  for (let e = 0; e < m; e++) if (fe[e] > 0) { off[P.a[e] + 1]++; off[P.b[e] + 1]++; }
+  off[n + 1] = nSrc;
+  for (let i = 0; i <= n; i++) off[i + 1] += off[i];
+  const nArcs = off[n + 1], cible = new Int32Array(nArcs), source = new Int32Array(nArcs), poids = new Float32Array(nArcs), arete = new Int32Array(nArcs).fill(-1);
+  const cur = off.slice(0, n + 1);
+  for (let e = 0; e < m; e++) if (fe[e] > 0) {
+    const a = P.a[e], b = P.b[e];
+    const l = P.lm[e] * fe[e];
+    let k = cur[a]++; cible[k] = b; source[k] = a; poids[k] = l; arete[k] = e;
+    k = cur[b]++; cible[k] = a; source[k] = b; poids[k] = l; arete[k] = e;
+  }
+  for (let v = 0; v < n; v++) if (touche[v]) { const k = cur[n]++; cible[k] = v; source[k] = n; poids[k] = 0; }
+  const res = dijkstra({ n: n + 1, off, cible, poids }, n, 0, max);
+  // Piste d'origine de chaque nœud atteint, dans l'ordre des distances (le prédécesseur est déjà étiqueté)
+  const atteints = [];
+  for (let v = 0; v < n; v++) if (res.dist[v] <= max) atteints.push(v);
+  atteints.sort((x, y) => res.dist[x] - res.dist[y]);
+  const origine = new Int32Array(n).fill(-1);
+  for (const v of atteints) { const k = res.pred[v]; origine[v] = source[k] === n ? v : origine[source[k]]; }
+  const garder = new Uint8Array(m);
+  const remonter = v => { while (res.pred[v] >= 0 && source[res.pred[v]] !== n) { const k = res.pred[v]; garder[arete[k]] = 1; v = source[k]; } };
+  for (let e = 0; e < m; e++) {
+    if (!(fe[e] > 0)) continue;
+    const a = P.a[e], b = P.b[e];
+    if (origine[a] < 0 || origine[b] < 0 || origine[a] === origine[b]) continue;
+    if (res.dist[a] + P.lm[e] * fe[e] + res.dist[b] > max) continue;
+    garder[e] = 1; remonter(a); remonter(b);
+  }
+  return garder;
 }
 
 // Dijkstra avec tas binaire ; pred[v] = arc par lequel on arrive en v.
@@ -123,7 +242,11 @@ function dijkstra(G, src, t0, limite = Infinity, but = -1) {
     while (i > 0) { const p = (i - 1) >> 1; if (hd[p] <= d) break; hn[i] = hn[p]; hd[i] = hd[p]; i = p; }
     hn[i] = v; hd[i] = d;
   };
-  dist[src] = t0; pousser(src, t0);
+  // src : un nœud (départ au temps t0), ou une liste [[nœud, temps de départ], …] (départ d'avant et départ sur une
+  // piste simulée, voir departs) ; res.src = premier nœud
+  const sources = Array.isArray(src) ? src : [[src, t0]];
+  for (const [v, t] of sources) if (t < dist[v]) { dist[v] = t; pousser(v, t); }
+  if (Array.isArray(src)) src = src.length ? src[0][0] : -1;
   while (taille > 0) {
     const u = hn[0], d = hd[0];
     taille--;
@@ -180,16 +303,158 @@ function accrocher(P, G, lon, lat) {
   return meilleur < 0 || dMin > max ? null : { noeud: meilleur, distM: dMin };
 }
 
-// Minutes par cellule : NaN hors zone de calcul, Infinity si hors d'atteinte
+// Départs possibles depuis (lon, lat) : le nœud accroché sur la grille et, dans une fenêtre avec tronçons simulés
+// (grille.secours), aussi celui de la grille d'avant. Sans ce second départ, une piste simulée plus proche du départ
+// mais reliée au réseau loin de là rallongeait les trajets (relecture du 12/10/2026). Liste vide : aucune voie.
+function departs(P, G, lon, lat) {
+  const a = accrocher(P, G, lon, lat), out = a ? [a] : [], s = P.grille.secours;
+  if (s && s.pro[G.mode]) {                  // grille d'avant sans ce mode (sans départementales calculé après) : un seul départ
+    const b = accrocher({ ...P, grille: { ...P.grille, pro: s.pro, dist: s.dist } }, G, lon, lat);
+    if (b && (!a || b.noeud !== a.noeud)) out.push(b);
+  }
+  return out;
+}
+const sourcesDijkstra = d => d.map(a => [a.noeud, accesSecondes(a.distM)]);
+
+// Arêtes d'une classe (pistes, ou bandes) regroupées en lignes continues : on suit chaque enchaînement de nœuds
+// de degré 2. Une ligne par arête donnait des dizaines de milliers de tracés à Leaflet (150 à 290 ms par fenêtre).
+// c : classe, ou fonction e → booléen (routes départementales : e => P.rd[e])
+function lignesReseau(P, c) {
+  const n = P.n, deg = new Uint16Array(n), aretes = [], garde = typeof c === "function" ? c : e => P.cls[e] === c;
+  for (let e = 0; e < P.m; e++) if (garde(e)) { aretes.push(e); deg[P.a[e]]++; deg[P.b[e]]++; }
+  const off = new Uint32Array(n + 1);
+  for (const e of aretes) { off[P.a[e] + 1]++; off[P.b[e] + 1]++; }
+  for (let v = 0; v < n; v++) off[v + 1] += off[v];
+  const adj = new Int32Array(off[n]), cur = off.slice(0, n);
+  for (const e of aretes) { adj[cur[P.a[e]]++] = e; adj[cur[P.b[e]]++] = e; }
+  const vu = new Uint8Array(P.m), lignes = [];
+  const suivre = (v, e) => {
+    const l = [[P.lat[v], P.lon[v]]];
+    for (;;) {
+      vu[e] = 1;
+      const w = P.a[e] === v ? P.b[e] : P.a[e];
+      l.push([P.lat[w], P.lon[w]]);
+      if (deg[w] !== 2) break;                // extrémité ou carrefour : fin de la ligne
+      let suite = -1;
+      for (let k = off[w]; k < off[w + 1]; k++) if (!vu[adj[k]]) { suite = adj[k]; break; }
+      if (suite < 0) break;
+      v = w; e = suite;
+    }
+    lignes.push(l);
+  };
+  for (const e of aretes) for (const v of [P.a[e], P.b[e]]) if (!vu[e] && deg[v] !== 2) suivre(v, e);
+  for (const e of aretes) if (!vu[e]) suivre(P.a[e], e);   // boucles fermées (aucun nœud de degré ≠ 2)
+  return lignes;
+}
+
+// Confort : voie exposée (départementale, secondaire, principale) ?
+function expose(c) { return CFG.confort.classes[c] >= 2; }
+
+// Minutes « tranquilles » par cellule depuis (lon, lat) : temps pondéré du trajet qui évite la route exposée
+// (graphe du mode « confort », même réseau que « tout »). Les arcs exposés à moins de departLibreM du départ (deux
+// extrémités, à vol d'oiseau) reprennent le temps du mode « tout » le temps du calcul, puis leurs poids d'origine.
+function minutesTranquilles(P, Gc, lon, lat, limiteS) {
+  const dep = departs(P, Gc, lon, lat);
+  if (!dep.length) return new Float32Array(P.grille.nx * P.grille.ny).fill(Infinity);
+  const r = CFG.confort.departLibreM, dLat = r / 111000, dLon = dLat / Math.cos(lat * RAD);
+  const proche = v => Math.abs(P.lat[v] - lat) < dLat && Math.abs(P.lon[v] - lon) < dLon && distanceM(lon, lat, P.lon[v], P.lat[v]) <= r;
+  const libres = [], sauves = [];
+  for (let v = 0; v < P.n; v++) {          // nœuds proches d'abord (bien moins nombreux que les arcs), puis leurs arcs
+    if (!proche(v)) continue;
+    for (let k = Gc.off[v]; k < Gc.off[v + 1]; k++) {
+      const c = P.cls[Gc.arete[k]];
+      if (expose(c) && proche(Gc.cible[k])) {
+        libres.push(k); sauves.push(Gc.poids[k]);
+        Gc.poids[k] *= CFG.penalites.tout[c] / CFG.penalites.confort[c];
+      }
+    }
+  }
+  const min = tempsGrille(P, Gc, dijkstra(Gc, sourcesDijkstra(dep), 0, limiteS));
+  libres.forEach((k, i) => { Gc.poids[k] = sauves[i]; });   // valeurs d'origine (une division dériverait en Float32)
+  return min;
+}
+
+// Teinte de confort d'une cellule : 0 bleu (tranquille), 1 gris, 2 orange, d'après le temps le plus rapide m et
+// le temps tranquille mc (minutes)
+function teinteConfort(m, mc) {
+  const s = CFG.confort;
+  return mc <= Math.max(m * s.surcout[0], m + s.surcoutMin) ? 0 : mc <= m * s.surcout[1] ? 1 : 2;
+}
+
+// Maillons manquants (traits noirs) depuis un départ : arcs de route exposée de l'arbre des plus rapides par lesquels
+// passent les trajets vers au moins seuilKm2 de cellules orange (trajet tranquille > +50 %) à minutesMax au plus.
+// Charge = cellules orange rattachées au nœud (pro.tout), remontée des feuilles vers la racine. Règle de la carte à
+// un départ, partagée avec maillons.js (D4, 12/10/2026). Rend [{ arc, charge (km²) }], distances croissantes.
+const CELLULE_KM2 = 0.0097;          // cellule de la grille France : 0,00125° × 0,0009° ≈ 97 m × 100 m
+function traitsNoirs(P, G, res, min, minConf, minutesMax = 60, seuilKm2 = 10) {
+  const pro = P.grille.pro.tout, charge = new Float32Array(P.n);
+  for (let k = 0; k < min.length; k++) {
+    const m = min[k];
+    if (!(m <= minutesMax)) continue;
+    if (teinteConfort(m, minConf[k]) === 2) charge[pro[k]]++;
+  }
+  const ordre = [];
+  for (let v = 0; v < P.n; v++) if (isFinite(res.dist[v])) ordre.push(v);
+  ordre.sort((a, b) => res.dist[a] - res.dist[b]);
+  for (let i = ordre.length - 1; i >= 0; i--) { const v = ordre[i], k = res.pred[v]; if (k >= 0) charge[G.source[k]] += charge[v]; }
+  const out = [];
+  for (const v of ordre) {
+    const k = res.pred[v];
+    if (k < 0 || !expose(P.cls[G.arete[k]])) continue;
+    const s = charge[v] * CELLULE_KM2;
+    if (s >= seuilKm2) out.push({ arc: k, charge: s });
+  }
+  return out;
+}
+
+// Départs du classement D4 : centres d'une grille régulière de pasM mètres, gardés si leur cellule est dedans
+// (terre du territoire). Pas en degrés pris à la latitude moyenne de la fenêtre.
+function grilleDeparts(g, pasM) {
+  const latMoy = g.n - g.ny * g.dlat / 2, pasLat = pasM / (R_TERRE * RAD), pasLon = pasLat / Math.cos(latMoy * RAD);
+  const out = [];
+  for (let lat = g.n - pasLat / 2; lat > g.n - g.ny * g.dlat; lat -= pasLat)
+    for (let lon = g.w + pasLon / 2; lon < g.w + g.nx * g.dlon; lon += pasLon) {
+      const i = Math.floor((lon - g.w) / g.dlon), j = Math.floor((g.n - lat) / g.dlat);
+      if (g.dedans[j * g.nx + i]) out.push([lon, lat]);
+    }
+  return out;
+}
+
+// Cumul D4 : pour chaque départ, traits noirs (règle de la page) ramenés à leurs voies ; une voie compte une fois
+// par départ. Départ sans voie à accesMaxM : ignoré. rep = départ où un arc de la voie porte la plus forte charge.
+function cumulerMaillons(P, G, points, minutesMax = 60) {
+  const V = voies(P), nV = V.liste.length;
+  const score = new Int32Array(nV), rep = new Array(nV).fill(null), repCharge = new Float64Array(nV);
+  let ignores = 0;
+  for (const [lon, lat] of points) {
+    const dep = departs(P, G.tout, lon, lat);
+    if (!dep.length) { ignores++; continue; }
+    const res = dijkstra(G.tout, sourcesDijkstra(dep), 0, minutesMax * 60);
+    const min = tempsGrille(P, G.tout, res);
+    const minConf = minutesTranquilles(P, G.confort, lon, lat, minutesMax * 60 * CFG.confort.surcout[1]);
+    const vues = new Set();
+    for (const { arc, charge } of traitsNoirs(P, G.tout, res, min, minConf, minutesMax)) {
+      const v = V.voie[G.tout.arete[arc]];
+      if (v < 0) continue;
+      if (!vues.has(v)) { vues.add(v); score[v]++; }
+      if (charge > repCharge[v]) { repCharge[v] = charge; rep[v] = [lon, lat]; }
+    }
+  }
+  return { ...V, score, rep, repCharge, departs: points.length, ignores };
+}
+
+// Minutes par cellule : NaN hors zone de calcul, Infinity si hors d'atteinte.
+// Fenêtre avec tronçons simulés (g.secours = grille d'avant) : la cellule garde le meilleur de son nœud d'avant et
+// du nœud simulé qui l'a reprise ; un nœud simulé injoignable dans ce mode (piste reliée seulement par une route, en
+// mode pistes) ne rallonge donc jamais un temps.
 function tempsGrille(P, G, res) {
   const g = P.grille, N = g.nx * g.ny, out = new Float32Array(N);
   const pro = g.pro[G.mode], dd = g.dist[G.mode], max = CFG.accesMaxM[G.mode];
+  const sp = g.secours && g.secours.pro[G.mode], sd = g.secours && g.secours.dist[G.mode];
+  const temps = (v, d) => (v >= 0 && d <= max && isFinite(res.dist[v]) ? (res.dist[v] + accesSecondes(d)) / 60 : Infinity);
   for (let k = 0; k < N; k++) {
     if (!g.dedans[k]) { out[k] = NaN; continue; }
-    const v = pro[k];
-    if (v < 0 || dd[k] > max) { out[k] = Infinity; continue; }
-    const t = res.dist[v];
-    out[k] = isFinite(t) ? (t + accesSecondes(dd[k])) / 60 : Infinity;
+    out[k] = sp ? Math.min(temps(pro[k], dd[k]), temps(sp[k], sd[k])) : temps(pro[k], dd[k]);
   }
   return out;
 }
@@ -237,13 +502,16 @@ function couverture(P, minutes, seuils) {
   return compte.map(c => (total ? c / total : 0));
 }
 
-// Surface (km²) des cellules comptées (g.ile) atteintes sous chaque seuil. Grille en degrés : l'aire d'une
-// cellule dépend de la latitude de sa ligne (cos φ) ; c'est le score de la version France (km² terrestres).
+// Aire (km²) d'une cellule de la ligne j : grille en degrés, l'aire dépend de la latitude de la ligne (cos φ)
+function aireLigneKm2(g, j) {
+  return (g.dlat * RAD * R_TERRE / 1000) * (g.dlon * RAD * R_TERRE / 1000) * Math.cos((g.n - (j + 0.5) * g.dlat) * RAD);
+}
+
+// Surface (km²) des cellules comptées (g.ile) atteintes sous chaque seuil ; c'est le score de la version France (km² terrestres).
 function surfaceKm2(P, minutes, seuils) {
-  const g = P.grille, kmLat = g.dlat * RAD * R_TERRE / 1000, kmLon = g.dlon * RAD * R_TERRE / 1000;
-  const surf = seuils.map(() => 0);
+  const g = P.grille, surf = seuils.map(() => 0);
   for (let j = 0; j < g.ny; j++) {
-    const aire = kmLat * kmLon * Math.cos((g.n - (j + 0.5) * g.dlat) * RAD);
+    const aire = aireLigneKm2(g, j);
     for (let i = 0, k = j * g.nx; i < g.nx; i++, k++) {
       if (!g.ile[k]) continue;
       const m = minutes[k];
@@ -251,6 +519,29 @@ function surfaceKm2(P, minutes, seuils) {
     }
   }
   return surf;
+}
+
+// Simulation : km² gagnés sous chaque seuil (après − avant)
+function gainSurface(P, minAvant, minApres, seuils) {
+  const a = surfaceKm2(P, minAvant, seuils), b = surfaceKm2(P, minApres, seuils);
+  return b.map((x, i) => x - a[i]);
+}
+
+// Simulation, confort : km² passés au bleu (depuis gris, orange, ou non atteints en limiteMin) et passés d'orange à
+// gris. avant / apres = { min, minConf } (temps le plus rapide et temps tranquille par cellule, en minutes).
+function gainConfort(P, avant, apres, limiteMin = 60) {
+  const g = P.grille, out = { bleu: 0, gris: 0 };
+  const teinte = (r, k) => (r.min[k] <= limiteMin ? teinteConfort(r.min[k], r.minConf[k]) : -1);
+  for (let j = 0; j < g.ny; j++) {
+    const aire = aireLigneKm2(g, j);
+    for (let i = 0, k = j * g.nx; i < g.nx; i++, k++) {
+      if (!g.ile[k]) continue;
+      const x = teinte(avant, k), y = teinte(apres, k);
+      if (y === 0 && x !== 0) out.bleu += aire;
+      else if (y === 1 && x === 2) out.gris += aire;
+    }
+  }
+  return out;
 }
 
 // Champ continu pour les isolignes : les cellules hors réseau ou en mer reçoivent la valeur
@@ -272,6 +563,388 @@ function champIsolignes(P, minutes) {
     }
   }
   return { champ, masque };
+}
+
+// ======================= SCÉNARIO DE TRONÇONS SIMULÉS =======================
+// Un tronçon = [[lon, lat], …] (WGS84, au moins 2 sommets) ; un scénario = liste de tronçons.
+
+// Lambert 93 (EPSG:2154) → [lon, lat] WGS84 : projection conique conforme inverse, ellipsoïde GRS80, constantes
+// IGN (notice ALG0004, latitude isométrique inverse par itération). RGF93 ≡ WGS84 au mètre : pas de changement de datum.
+function l93VersWgs84(x, y) {
+  const n = 0.7256077650, c = 11754255.426, xs = 700000, ys = 12655612.050, e = 0.0818191910428158;
+  const dx = x - xs, dy = ys - y, R = Math.hypot(dx, dy);
+  const lon = 3 + Math.atan(dx / dy) / n / RAD;
+  const L = -Math.log(R / c) / n;                       // latitude isométrique
+  let phi = 2 * Math.atan(Math.exp(L)) - Math.PI / 2;
+  for (let i = 0; i < 20; i++) {
+    const s = e * Math.sin(phi);
+    const suivant = 2 * Math.atan(((1 + s) / (1 - s)) ** (e / 2) * Math.exp(L)) - Math.PI / 2;
+    if (Math.abs(suivant - phi) < 1e-12) { phi = suivant; break; }
+    phi = suivant;
+  }
+  return [lon, phi / RAD];
+}
+
+// Scénario ↔ texte du lien (t=) : polyline encodée de Google (précision 1e-5, lat puis lon, compatible avec les
+// outils existants), un texte par tronçon, séparés par des virgules (hors de l'alphabet 63..126 de l'algorithme).
+function encoderTroncons(troncons) {
+  const enc = v => {
+    v = v < 0 ? ~(v << 1) : v << 1;
+    let s = "";
+    while (v >= 0x20) { s += String.fromCharCode((0x20 | (v & 0x1f)) + 63); v >>= 5; }
+    return s + String.fromCharCode(v + 63);
+  };
+  return troncons.map(t => {
+    let pla = 0, plo = 0, s = "";
+    for (const [lon, lat] of t) {
+      const la = Math.round(lat * 1e5), lo = Math.round(lon * 1e5);
+      s += enc(la - pla) + enc(lo - plo); pla = la; plo = lo;
+    }
+    return s;
+  }).join(",");
+}
+// Inverse d'encoderTroncons ; lève une erreur sur un texte illisible, tronqué ou un tronçon de moins de 2 sommets
+function decoderTroncons(s) {
+  if (!s) return [];
+  return s.split(",").map(p => {
+    let i = 0, la = 0, lo = 0;
+    const lire = () => {
+      let v = 0, dec = 0, c;
+      do {
+        if (i >= p.length) throw new Error("tronçon tronqué");
+        c = p.charCodeAt(i++) - 63;
+        if (c < 0 || c > 63) throw new Error("caractère hors alphabet");
+        v |= (c & 0x1f) << dec; dec += 5;
+      } while (c >= 0x20);
+      return v & 1 ? ~(v >> 1) : v >> 1;
+    };
+    const t = [];
+    while (i < p.length) { la += lire(); lo += lire(); t.push([lo / 1e5, la / 1e5]); }
+    if (t.length < 2) throw new Error("tronçon de moins de 2 sommets");
+    return t;
+  });
+}
+
+// GeoJSON (FeatureCollection, Feature ou géométrie) → tronçons WGS84. LineString et MultiLineString gardées (une
+// partie = un tronçon), le reste compté dans `ignores`. Lambert 93 reconnu au champ crs (2154) ou, sans crs (export
+// QGIS courant), à une coordonnée hors des bornes des degrés (|x| > 1000). Toute autre projection (crs CC46, 3857…)
+// lève une erreur « projection non reconnue » : sans ce contrôle, les tronçons tombaient à des centaines de km.
+function lireGeoJSON(o) {
+  const lignes = [];
+  let ignores = 0;
+  const geometrie = g => {
+    if (!g) ignores++;
+    else if (g.type === "LineString") lignes.push(g.coordinates);
+    else if (g.type === "MultiLineString") lignes.push(...g.coordinates);
+    else if (g.type === "GeometryCollection") g.geometries.forEach(geometrie);
+    else ignores++;
+  };
+  const parcourir = x => x.type === "FeatureCollection" ? x.features.forEach(parcourir) : x.type === "Feature" ? geometrie(x.geometry) : geometrie(x);
+  parcourir(o);
+  const nonReconnue = () => new Error("projection non reconnue : WGS84 (EPSG:4326) ou Lambert 93 (EPSG:2154) attendus");
+  const crs = String((o.crs && o.crs.properties && o.crs.properties.name) || "");
+  if (crs && !/2154|4326|CRS84/.test(crs)) throw nonReconnue();
+  const l93 = /2154/.test(crs) || lignes.some(l => l.some(c => Math.abs(c[0]) > 1000));
+  const troncons = [];
+  for (const l of lignes) {
+    const t = l.map(c => (l93 ? l93VersWgs84(c[0], c[1]) : [c[0], c[1]])).filter(([x, y]) => isFinite(x) && isFinite(y));
+    if (t.length >= 2) troncons.push(t); else ignores++;
+  }
+  // Emprise large de la France métropolitaine : au-delà, ce n'était pas du Lambert 93 (ou pas du WGS84)
+  if (troncons.some(t => t.some(([x, y]) => x < -6 || x > 10 || y < 41 || y > 52))) throw nonReconnue();
+  return { troncons, ignores };
+}
+
+function longueurTroncon(t) {
+  let l = 0;
+  for (let i = 1; i < t.length; i++) l += distanceM(t[i - 1][0], t[i - 1][1], t[i][0], t[i][1]);
+  return l;
+}
+
+// Tronçons → FeatureCollection WGS84 (export, à reprendre dans QGIS)
+function versGeoJSON(troncons) {
+  return { type: "FeatureCollection", features: troncons.map((t, i) => ({
+    type: "Feature", properties: { nom: `Tronçon simulé ${i + 1}`, longueur_m: Math.round(longueurTroncon(t)) },
+    geometry: { type: "LineString", coordinates: t.map(([lon, lat]) => [lon, lat]) },
+  })) };
+}
+
+// Pour chaque point, nœud de P le plus proche à maxM au plus (-1 sinon). Seaux de maxM de côté, remplis avec les
+// seuls nœuds du rectangle englobant les points : un parcours de P.n, puis 3 × 3 seaux par point.
+function noeudsProches(P, points, maxM) {
+  const out = new Int32Array(points.length).fill(-1);
+  if (!points.length) return out;
+  let w = Infinity, e = -Infinity, s = Infinity, n = -Infinity;
+  for (const [lon, lat] of points) { w = Math.min(w, lon); e = Math.max(e, lon); s = Math.min(s, lat); n = Math.max(n, lat); }
+  const pasLat = maxM / (R_TERRE * RAD), pasLon = pasLat / Math.cos(Math.max(Math.abs(s), Math.abs(n)) * RAD);
+  w -= pasLon; e += pasLon; s -= pasLat; n += pasLat;
+  const seaux = new Map(), cle = (i, j) => `${i}_${j}`;
+  for (let v = 0; v < P.n; v++) {
+    const lo = P.lon[v], la = P.lat[v];
+    if (lo < w || lo > e || la < s || la > n) continue;
+    const c = cle(Math.floor(lo / pasLon), Math.floor(la / pasLat));
+    if (!seaux.has(c)) seaux.set(c, []);
+    seaux.get(c).push(v);
+  }
+  points.forEach(([lon, lat], p) => {
+    const i0 = Math.floor(lon / pasLon), j0 = Math.floor(lat / pasLat);
+    let dMin = maxM;
+    for (let di = -1; di <= 1; di++) for (let dj = -1; dj <= 1; dj++) {
+      for (const v of seaux.get(cle(i0 + di, j0 + dj)) || []) {
+        const d = distanceM(lon, lat, P.lon[v], P.lat[v]);
+        if (d <= dMin) { dMin = d; out[p] = v; }
+      }
+    }
+  });
+  return out;
+}
+
+// « Aménager une voie en un clic » (12/10/2026) : voie existante (bande ou route, classe ≥ 1) la plus proche de
+// (lon, lat) à maxM au plus, suivie dans les deux sens jusqu'aux carrefours (nœud où ne passent pas exactement deux
+// voies de classe ≥ 1 ; les pistes ne coupent pas). Rend les sommets [[lon, lat], ...], null si aucune voie.
+// ponytail: un chemin de service ou une entrée de parking OSM compte comme carrefour (bout de voie court) : on reclique
+// sur la suite ; filtrer par nom de voie si ça gêne.
+// Arête de classe ≥ clsMin la plus proche de (lon, lat) à maxM au plus (-1 sinon). Parcours de toutes les arêtes.
+function areteProche(P, lon, lat, maxM, clsMin = 0) {
+  const kx = Math.cos(lat * RAD) * RAD * R_TERRE, ky = RAD * R_TERRE;   // degrés → mètres autour du point
+  const dLon = maxM / kx, dLat = maxM / ky;
+  let eMin = -1, dMin = maxM;
+  for (let e = 0; e < P.m; e++) {
+    if (P.cls[e] < clsMin) continue;
+    const a = P.a[e], b = P.b[e];
+    if (Math.max(P.lon[a], P.lon[b]) < lon - dLon || Math.min(P.lon[a], P.lon[b]) > lon + dLon ||
+        Math.max(P.lat[a], P.lat[b]) < lat - dLat || Math.min(P.lat[a], P.lat[b]) > lat + dLat) continue;
+    // Distance point-segment dans le plan local (mètres)
+    const ax = (P.lon[a] - lon) * kx, ay = (P.lat[a] - lat) * ky, bx = (P.lon[b] - lon) * kx, by = (P.lat[b] - lat) * ky;
+    const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy;
+    const s = l2 ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / l2)) : 0;
+    const d = Math.hypot(ax + s * dx, ay + s * dy);
+    if (d <= dMin) { dMin = d; eMin = e; }
+  }
+  return eMin;
+}
+
+// Pour chaque point, arête de P la plus proche à maxM au plus (-1 sinon), en un seul parcours des arêtes : points
+// rangés en seaux de maxM de côté, chaque arête ne teste que les points des seaux que couvre son emprise élargie.
+function aretesProches(P, points, maxM) {
+  const out = new Int32Array(points.length).fill(-1), dMin = new Float64Array(points.length).fill(maxM);
+  if (!points.length) return out;
+  const lat0 = points[0][1], kx = Math.cos(lat0 * RAD) * RAD * R_TERRE, ky = RAD * R_TERRE;
+  const pasLon = maxM / kx, pasLat = maxM / ky, seaux = new Map(), cle = (i, j) => `${i}_${j}`;
+  points.forEach(([lon, lat], p) => {
+    const c = cle(Math.floor(lon / pasLon), Math.floor(lat / pasLat));
+    if (!seaux.has(c)) seaux.set(c, []);
+    seaux.get(c).push(p);
+  });
+  let w = Infinity, ea = -Infinity, so = Infinity, no = -Infinity;     // emprise des points, élargie de maxM
+  for (const [lon, lat] of points) { w = Math.min(w, lon); ea = Math.max(ea, lon); so = Math.min(so, lat); no = Math.max(no, lat); }
+  w -= pasLon; ea += pasLon; so -= pasLat; no += pasLat;
+  for (let e = 0; e < P.m; e++) {
+    const a = P.a[e], b = P.b[e];
+    if (Math.max(P.lon[a], P.lon[b]) < w || Math.min(P.lon[a], P.lon[b]) > ea || Math.max(P.lat[a], P.lat[b]) < so || Math.min(P.lat[a], P.lat[b]) > no) continue;
+    const i0 = Math.floor(Math.min(P.lon[a], P.lon[b]) / pasLon) - 1, i1 = Math.floor(Math.max(P.lon[a], P.lon[b]) / pasLon) + 1;
+    const j0 = Math.floor(Math.min(P.lat[a], P.lat[b]) / pasLat) - 1, j1 = Math.floor(Math.max(P.lat[a], P.lat[b]) / pasLat) + 1;
+    if ((i1 - i0 + 1) * (j1 - j0 + 1) > 400) continue;   // arête de plus de ~400 m de long : ses nœuds suffisent
+    for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) {
+      for (const p of seaux.get(cle(i, j)) || []) {
+        const [lon, lat] = points[p];
+        const ax = (P.lon[a] - lon) * kx, ay = (P.lat[a] - lat) * ky, bx = (P.lon[b] - lon) * kx, by = (P.lat[b] - lat) * ky;
+        const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy;
+        const s = l2 ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / l2)) : 0;
+        const d = Math.hypot(ax + s * dx, ay + s * dy);
+        if (d <= dMin[p]) { dMin[p] = d; out[p] = e; }
+      }
+    }
+  }
+  return out;
+}
+
+// Voies entre carrefours : arêtes de classe ≥ 1 enchaînées par les nœuds où passent exactement deux voies de
+// classe ≥ 1 (les pistes ne coupent pas). Unité de « Aménager une voie » et du classement D4.
+// Rend { voie (indice par arête, -1 pour une piste), liste (nœuds de chaque voie dans l'ordre), arete (une par voie) }.
+function voies(P) {
+  const off = new Uint32Array(P.n + 1);
+  for (let e = 0; e < P.m; e++) if (P.cls[e] >= 1) { off[P.a[e] + 1]++; off[P.b[e] + 1]++; }
+  for (let v = 0; v < P.n; v++) off[v + 1] += off[v];
+  const adj = new Int32Array(off[P.n]), cur = off.slice(0, P.n);
+  for (let e = 0; e < P.m; e++) if (P.cls[e] >= 1) { adj[cur[P.a[e]]++] = e; adj[cur[P.b[e]]++] = e; }
+  const voie = new Int32Array(P.m).fill(-1), liste = [], arete = [];
+  // Nœuds rencontrés depuis v en s'éloignant de l'arête e, jusqu'au carrefour inclus
+  const prolonger = (v, e, id) => {
+    const l = [];
+    for (;;) {
+      if (off[v + 1] - off[v] !== 2) break;
+      const suite = adj[off[v]] === e ? adj[off[v] + 1] : adj[off[v]];
+      if (voie[suite] >= 0) break;                       // boucle refermée
+      voie[suite] = id;
+      v = P.a[suite] === v ? P.b[suite] : P.a[suite]; e = suite;
+      l.push(v);
+    }
+    return l;
+  };
+  for (let e = 0; e < P.m; e++) {
+    if (P.cls[e] < 1 || voie[e] >= 0) continue;
+    const id = liste.length;
+    voie[e] = id;
+    const avant = prolonger(P.a[e], e, id).reverse(), apres = prolonger(P.b[e], e, id);
+    liste.push([...avant, P.a[e], P.b[e], ...apres]);
+    arete.push(e);
+  }
+  return { voie, liste, arete: Int32Array.from(arete) };
+}
+
+// Voie (de voies(P)) qui contient l'arête de classe ≥ 1 la plus proche du clic
+function voieAuClic(P, lon, lat, maxM) {
+  const eMin = areteProche(P, lon, lat, maxM, 1);
+  if (eMin < 0) return null;
+  const { voie, liste } = voies(P);
+  return liste[voie[eMin]].map(v => [P.lon[v], P.lat[v]]);
+}
+
+// Grille : les cellules à maxM au plus du nœud v (lon, lat) le prennent si elles en sont plus proches que de leur nœud
+function rattacher(g, pro, dist, v, lon, lat, maxM) {
+  const dLat = maxM / (R_TERRE * RAD), dLon = dLat / Math.cos(lat * RAD);
+  const i0 = Math.max(0, Math.floor((lon - dLon - g.w) / g.dlon)), i1 = Math.min(g.nx - 1, Math.floor((lon + dLon - g.w) / g.dlon));
+  const j0 = Math.max(0, Math.floor((g.n - lat - dLat) / g.dlat)), j1 = Math.min(g.ny - 1, Math.floor((g.n - lat + dLat) / g.dlat));
+  for (let j = j0; j <= j1; j++) {
+    const clat = g.n - (j + 0.5) * g.dlat;
+    for (let i = i0; i <= i1; i++) {
+      const k = j * g.nx + i, d = distanceM(g.w + (i + 0.5) * g.dlon, clat, lon, lat);
+      if (d <= maxM && d < dist[k]) { pro[k] = v; dist[k] = d; }
+    }
+  }
+}
+
+// Croisements des tronçons avec les arêtes de P : coupes[iT][j] = [{lon, lat, arete}, ...] le long du segment
+// (j-1 → j) du tronçon iT, triés depuis le sommet j-1. Croisement strict (une voie seulement touchée ou longée n'en
+// donne pas). ponytail: un croisement en pont ou en tunnel compte aussi comme raccord ; le réseau OSM ne dit pas
+// lequel, et le cas reste rare pour une piste simulée.
+function croisements(P, troncons) {
+  const coupes = troncons.map(() => []);
+  const segs = [];
+  troncons.forEach((t, iT) => { for (let j = 1; j < t.length; j++) segs.push([iT, j, t[j - 1], t[j]]); });
+  if (!segs.length) return coupes;
+  let w = Infinity, e = -Infinity, s = Infinity, n = -Infinity;
+  for (const t of troncons) for (const [lon, lat] of t) { w = Math.min(w, lon); e = Math.max(e, lon); s = Math.min(s, lat); n = Math.max(n, lat); }
+  const kx = Math.cos((s + n) / 2 * RAD);       // plan local : longitudes ramenées à l'échelle des latitudes
+  const ext = (p, q, r) => (q[0] - p[0]) * kx * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]) * kx;
+  for (let k = 0; k < P.m; k++) {
+    const a = [P.lon[P.a[k]], P.lat[P.a[k]]], b = [P.lon[P.b[k]], P.lat[P.b[k]]];
+    if (Math.max(a[0], b[0]) < w || Math.min(a[0], b[0]) > e || Math.max(a[1], b[1]) < s || Math.min(a[1], b[1]) > n) continue;
+    for (const [iT, j, p, q] of segs) {
+      const d1 = ext(p, q, a), d2 = ext(p, q, b);
+      if (d1 * d2 >= 0) continue;
+      const d3 = ext(a, b, p), d4 = ext(a, b, q);
+      if (d3 * d4 >= 0) continue;
+      const u = d3 / (d3 - d4);                 // position du croisement sur le segment p → q
+      (coupes[iT][j] ||= []).push({ u, lon: p[0] + u * (q[0] - p[0]), lat: p[1] + u * (q[1] - p[1]), arete: k });
+    }
+  }
+  for (const c of coupes) for (const l of c) if (l) l.sort((x, y) => x.u - y.u);
+  return coupes;
+}
+
+// Fenêtre P′ = P + tronçons simulés (P n'est pas modifié : il sert à l'« avant »). Chaque sommet devient un nœud,
+// raccordé par une arête classe 0 au nœud de P le plus proche s'il est à CFG.raccordMaxM au plus ; chaque voie croisée
+// par le tracé l'est aussi (croisements, depuis le 12/10/2026 : sans eux, une piste tracée en deux clics passait sur
+// 19 voies sans s'y raccorder) ; les segments sont
+// découpés tous les CFG.pasTronconM mètres ; les cellules proches se rattachent aux nouveaux nœuds (une piste en site
+// propre doit servir aux cellules qu'elle traverse). Extrémités sans nœud proche rendues dans nonRaccordes, indices
+// des tronçons sans aucun raccord (injoignables, sans effet) dans isoles.
+// ponytail: copie complète des tableaux de la fenêtre (quelques dizaines de ms pour 1 M de nœuds), refaite à chaque
+// modification du scénario ; à remplacer par un graphe additionnel si le scénario devait changer pendant le survol.
+function ajouterTroncons(P, troncons) {
+  if (!troncons.length) return { P, nonRaccordes: [], isoles: [], horsZone: [] };
+  const nLon = [], nLat = [], ea = [], eb = [], el = [], nonRaccordes = [];
+  const nouveau = (lon, lat) => { nLon.push(lon); nLat.push(lat); return P.n + nLon.length - 1; };
+  const lier = (u, v, l) => { ea.push(u); eb.push(v); el.push(l); };
+  const proches = noeudsProches(P, troncons.flat(), CFG.raccordMaxM);
+  // Sommets sans nœud proche mais posés sur une voie aux nœuds espacés (route droite) : raccordés à cette voie
+  const sansNoeud = troncons.flat().filter((_, k) => proches[k] < 0), surVoie = aretesProches(P, sansNoeud, CFG.raccordMaxM);
+  const voieDe = new Map();
+  { let k = 0; troncons.flat().forEach((pt, i) => { if (proches[i] < 0) voieDe.set(i, surVoie[k++]); }); }
+  // Nœuds des tronçons raccordés au réseau : seuls eux reprennent des cellules (un tronçon sans aucun raccord est
+  // injoignable : ses cellules seraient perdues, gain négatif vu le 12/10/2026)
+  // Hors de la fenêtre chargée (marge de raccordMaxM), on ne voit pas les voies : un sommet n'y est ni raccordé ni
+  // « libre » ; un tronçon sans raccord dont un sommet est dehors va dans horsZone, pas dans isoles
+  const g0 = P.grille, mLat = CFG.raccordMaxM / (R_TERRE * RAD);
+  const dedansFenetre = (lon, lat) => {
+    const mLon = mLat / Math.cos(lat * RAD);
+    return lon >= g0.w + mLon && lon <= g0.w + g0.nx * g0.dlon - mLon && lat <= g0.n - mLat && lat >= g0.n - g0.ny * g0.dlat + mLat;
+  };
+  const relies = [], isoles = [], horsZone = [];
+  const coupes = croisements(P, troncons);
+  let iSommet = 0;
+  troncons.forEach((t, iT) => {
+    let prec = -1, relie = false, dehors = false;
+    const premier = P.n + nLon.length;
+    // Points du tracé dans l'ordre : sommets (raccordés au nœud proche) et croisements avec une voie (raccordés aux
+    // deux bouts de l'arête croisée : on peut quitter la piste là où elle coupe une route)
+    const pts = [];
+    t.forEach(([lon, lat], j) => {
+      if (j > 0) for (const c of coupes[iT][j] || []) pts.push({ lon: c.lon, lat: c.lat, arete: c.arete });
+      pts.push({ lon, lat, q: proches[iSommet], voie: voieDe.get(iSommet), bout: j === 0 || j === t.length - 1 });
+      iSommet++;
+    });
+    pts.forEach(({ lon, lat, q, voie, arete, bout }, j) => {
+      const v = nouveau(lon, lat), dedans = dedansFenetre(lon, lat);
+      if (arete === undefined && q < 0 && voie >= 0 && dedans) arete = voie;
+      if (!dedans) dehors = true;
+      if (arete !== undefined) {
+        relie = true;
+        for (const w of [P.a[arete], P.b[arete]]) lier(v, w, distanceM(lon, lat, P.lon[w], P.lat[w]));
+      } else if (q >= 0) { relie = true; lier(v, q, distanceM(lon, lat, P.lon[q], P.lat[q])); }
+      else if (bout && dedans) nonRaccordes.push([lon, lat]);
+      if (prec >= 0) {
+        const { lon: lo0, lat: la0 } = pts[j - 1], d = distanceM(lo0, la0, lon, lat), k = Math.max(1, Math.ceil(d / CFG.pasTronconM));
+        let u = prec;
+        for (let s = 1; s < k; s++) { const w = nouveau(lo0 + (lon - lo0) * s / k, la0 + (lat - la0) * s / k); lier(u, w, d / k); u = w; }
+        lier(u, v, d / k);
+      }
+      prec = v;
+    });
+    if (relie) for (let v = premier; v < P.n + nLon.length; v++) relies.push(v);
+    else (dehors ? horsZone : isoles).push(iT);
+  });
+  const dn = nLon.length, dm = ea.length, n = P.n + dn, m = P.m + dm;
+  const etendre = (Type, src, extra) => { const t = new Type(src.length + extra.length); t.set(src); t.set(extra, src.length); return t; };
+  const rempli = (k, v) => new Array(k).fill(v);
+  const Q = {
+    ...P, n, m,
+    lon: etendre(Float64Array, P.lon, nLon), lat: etendre(Float64Array, P.lat, nLat),
+    a: etendre(Int32Array, P.a, ea), b: etendre(Int32Array, P.b, eb), lm: etendre(Float32Array, P.lm, el),
+    cls: etendre(Uint8Array, P.cls, rempli(dm, 0)), sens: etendre(Uint8Array, P.sens, rempli(dm, 0)),
+    vit: etendre(Uint8Array, P.vit, rempli(dm, CFG.vitesseSimuleeKmh)), rd: etendre(Uint8Array, P.rd || new Uint8Array(P.m), rempli(dm, 0)),
+    nom: etendre(Int32Array, P.nom, rempli(dm, P.noms.length)), noms: [...P.noms, "Piste (simulée)"],
+  };
+  if (P.global) Q.global = etendre(Float64Array, P.global, rempli(dn, -1));
+  const g = P.grille, pro = {}, dist = {};
+  for (const mode of ["tout", "amenage", "sansdep"]) {
+    if (!g.pro[mode]) continue;              // sansdep : calculé seulement si le mode a servi (rattacherGrille)
+    pro[mode] = g.pro[mode].slice(); dist[mode] = g.dist[mode].slice();
+    for (const v of relies) rattacher(g, pro[mode], dist[mode], v, Q.lon[v], Q.lat[v], CFG.accesMaxM[mode]);
+  }
+  if (g.pro.confort === g.pro.tout) { pro.confort = pro.tout; dist.confort = dist.tout; }   // alias posé par la page
+  Q.grille = { ...g, pro, dist, secours: { pro: g.pro, dist: g.dist } };   // grille d'avant : voir tempsGrille
+  return { P: Q, nonRaccordes, isoles, horsZone };
+}
+
+// Masque d'un territoire (territoires.json, tuiler.py) : plages alternées 0 / 1 sur un rectangle de la grille
+// France ; centre = point d'où la page charge la fenêtre fixe du territoire. total = dénominateur des %.
+function decoderMasque({ i0, j0, nx, ny, total, plages }, gi) {
+  const m = new Uint8Array(nx * ny);
+  for (let k = 0, pos = 0; k < plages.length; k += 2) { pos += plages[k]; m.fill(1, pos, pos + plages[k + 1]); pos += plages[k + 1]; }
+  return { i0, j0, nx, ny, m, total, centre: [gi.lon0 + (i0 + nx / 2) * gi.dlon, gi.lat0 - (j0 + ny / 2) * gi.dlat] };
+}
+// Fenêtre ramenée au territoire : cellules hors masque ni colorées ni comptées (dedans = ile = masque)
+function appliquerMasque(g, z, gi) {
+  const di = Math.round((g.w - gi.lon0) / gi.dlon) - z.i0, dj = Math.round((gi.lat0 - g.n) / gi.dlat) - z.j0;
+  const m = new Uint8Array(g.nx * g.ny);
+  for (let j = 0; j < g.ny; j++) for (let i = 0; i < g.nx; i++) {
+    const zi = i + di, zj = j + dj;
+    m[j * g.nx + i] = zi >= 0 && zj >= 0 && zi < z.nx && zj < z.ny && z.m[zj * z.nx + zi] ? 1 : 0;
+  }
+  g.dedans = g.ile = m;
 }
 
 // ======================= TUILES (format v1, encodeur : format_tuile.py) =======================
@@ -355,14 +1028,15 @@ function recollerTuiles(tuiles) {
     mTotal += t.m;
   }
   const a = new Int32Array(mTotal), b = new Int32Array(mTotal), lm = new Float32Array(mTotal);
-  const cls = new Uint8Array(mTotal), sens = new Uint8Array(mTotal), vit = new Uint8Array(mTotal);
+  const cls = new Uint8Array(mTotal), sens = new Uint8Array(mTotal), vit = new Uint8Array(mTotal), rd = new Uint8Array(mTotal);
   let m = 0, ecartees = 0;
   for (const { t } of blocs) {
     for (let e = 0; e < t.m; e++) {
       const ia = indice(t.a[e]), ib = indice(t.b[e]);
       if (ia < 0 || ib < 0) { ecartees++; continue; }
       const at = t.attr[e];
-      a[m] = ia; b[m] = ib; lm[m] = t.l[e] / 10; cls[m] = at & 7; sens[m] = (at >> 3) & 3; vit[m] = at >> 5;
+      a[m] = ia; b[m] = ib; lm[m] = t.l[e] / 10; cls[m] = at & 7; sens[m] = (at >> 3) & 3; vit[m] = (at >> 5) & 0x3ff;
+      rd[m] = at >> 15;                                    // bit 15 : route départementale (marquer_rd.py)
       m++;
     }
   }
@@ -383,7 +1057,7 @@ function recollerTuiles(tuiles) {
     }
   }
   return {
-    n, m, lon, lat, global, lm: lm.subarray(0, m), cls: cls.subarray(0, m), sens: sens.subarray(0, m), vit: vit.subarray(0, m),
+    n, m, lon, lat, global, lm: lm.subarray(0, m), cls: cls.subarray(0, m), sens: sens.subarray(0, m), vit: vit.subarray(0, m), rd: rd.subarray(0, m),
     a: a.subarray(0, m), b: b.subarray(0, m), nom: new Int32Array(m), noms: [""], ecartees,
     grille: {
       w: GRILLE_FRANCE.lon0 + txMin * C * GRILLE_FRANCE.dlon, n: GRILLE_FRANCE.lat0 - tyMin * C * GRILLE_FRANCE.dlat,
@@ -502,8 +1176,140 @@ class ChargeurTuiles {
   }
 }
 
+// ======================= COMPTAGES (accessibilite.json, comptages.py) =======================
+// Équipements BPE (un par entrée), habitants / ménages Filosofi et couches de points pondérés (campings…), rattachés
+// aux cellules de la grille France : indice linéaire k = gj × W + gi, codé en différences dans le JSON.
+// Une entrée est « atteinte à s min » si sa cellule l'est (tempsGrille), comme pour la surface.
+function preparerComptages(A) {
+  const cumul = d => { const t = new Float64Array(d.length); let s = 0; for (let x = 0; x < d.length; x++) { s += d[x]; t[x] = s; } return t; };
+  const eq = A.equipements;
+  return {
+    W: A.W, domaines: A.domaines || [], types: A.types || [], sources: A.sources || [],
+    fonctions: A.fonctions || [],          // [{ id, libelle, seuil }] : bit b de eq.f = fonction b
+    eq: eq ? { k: cumul(eq.k), t: Int32Array.from(eq.t), d: Int8Array.from(eq.d), f: Int32Array.from(eq.f || []),
+                p: eq.p ? Int16Array.from(eq.p) : null } : null,   // p = 100 × ligne + colonne dans la cellule (centièmes)
+    couches: (A.couches || []).map(c => ({ id: c.id, libelle: c.libelle, unite: c.unite || "", source: c.source,
+      k: cumul(c.k), v: Float64Array.from(c.v, x => x / (c.echelle || 1)) })),
+    communes: A.communes || null,          // { liste: [[code, nom]], c: commune de chaque entrée de la couche population }
+  };
+}
+
+// Cellule de la fenêtre g pour chaque entrée (-1 hors fenêtre) ; à refaire à chaque changement de fenêtre
+function indexerComptages(Cm, g) {
+  const i0 = Math.round((g.w - GRILLE_FRANCE.lon0) / g.dlon), j0 = Math.round((GRILLE_FRANCE.lat0 - g.n) / g.dlat);
+  const loc = k => {
+    const out = new Int32Array(k.length);
+    for (let x = 0; x < k.length; x++) {
+      const gj = Math.floor(k[x] / Cm.W), i = k[x] - gj * Cm.W - i0, j = gj - j0;
+      out[x] = i >= 0 && j >= 0 && i < g.nx && j < g.ny ? j * g.nx + i : -1;
+    }
+    return out;
+  };
+  return { eq: Cm.eq ? loc(Cm.eq.k) : null, couches: Cm.couches.map(c => loc(c.k)) };
+}
+
+// Comptes sous chaque seuil (minutes croissantes). compte = masque des cellules comptées (g.ile) ; minutes = null
+// donne le total de la fenêtre (dénominateur des % en vue territoire). Coût : une passe sur les entrées de la fenêtre.
+function compterAtteints(Cm, ix, minutes, seuils, compte) {
+  const S = seuils.length, max = seuils[S - 1];
+  const zeros = n => seuils.map(() => new Array(n).fill(0));
+  const r = { total: new Array(S).fill(0), domaines: zeros(Cm.domaines.length), couches: zeros(Cm.couches.length) };
+  const premier = m => { if (!minutes) return 0; if (!(m <= max)) return S; let s = 0; while (m > seuils[s]) s++; return s; };
+  if (Cm.eq) {
+    const { d } = Cm.eq, loc = ix.eq;
+    for (let x = 0; x < loc.length; x++) {
+      const c = loc[x];
+      if (c < 0 || !compte[c]) continue;
+      for (let s = premier(minutes && minutes[c]); s < S; s++) {
+        r.total[s]++;
+        if (d[x] >= 0) r.domaines[s][d[x]]++;
+      }
+    }
+  }
+  Cm.couches.forEach((cou, ci) => {
+    const loc = ix.couches[ci], v = cou.v;
+    for (let x = 0; x < loc.length; x++) {
+      const c = loc[x];
+      if (c < 0 || !compte[c]) continue;
+      for (let s = premier(minutes && minutes[c]); s < S; s++) r.couches[s][ci] += v[x];
+    }
+  });
+  return r;
+}
+
+// Équipement le plus proche de chaque fonction : { min (minutes, Infinity si aucun atteint), cellule (-1) }
+function plusProcheParFonction(Cm, ix, minutes, compte) {
+  const out = Cm.fonctions.map(() => ({ min: Infinity, cellule: -1 }));
+  if (!Cm.eq || !minutes) return out;
+  const f = Cm.eq.f, loc = ix.eq, nF = out.length;
+  for (let x = 0; x < loc.length; x++) {
+    const c = loc[x];
+    if (c < 0 || !f[x] || !compte[c]) continue;
+    const m = minutes[c];
+    if (!(m < Infinity)) continue;
+    for (let b = 0; b < nF; b++) if (f[x] & (1 << b) && m < out[b].min) { out[b].min = m; out[b].cellule = c; }
+  }
+  return out;
+}
+
+// Cas de chaque fonction depuis un départ (cadre « territoire de la demi-heure ») : 0 tranquille (pistes ou voies
+// calmes, au plus le seuil de la fonction), 1 route seulement (au plus le seuil en passant par une route exposée),
+// 2 trop loin (au-delà du seuil même par la route). M = minutesAcces.
+const CAS = ["tranquille", "route", "loin"];
+function casFonctions(Cm, ix, M, compte) {
+  const tr = plusProcheParFonction(Cm, ix, M.tranquille, compte), to = plusProcheParFonction(Cm, ix, M.tous, compte);
+  return Cm.fonctions.map((fn, b) => ({
+    cas: tr[b].min <= fn.seuil ? 0 : to[b].min <= fn.seuil ? 1 : 2,
+    tranquille: tr[b].min, tous: to[b].min, celluleTous: to[b].cellule,
+  }));
+}
+
+// Trois mesures d'accès par cellule depuis (lon, lat), en minutes (Infinity si non atteint) :
+// - pistes : réseau aménagé seul (mode « Pistes et bandes », liaisons courtes comprises) ;
+// - tranquille : temps le plus rapide (routes comprises) des cellules en bleu, c'est-à-dire où le trajet qui évite la
+//   route exposée coûte au plus +20 % (teinteConfort), ou temps par les pistes s'il est plus court ; donc toujours au
+//   moins autant que « pistes » ;
+// - tous : temps le plus rapide, routes comprises (mode « Pistes + routes »).
+// Gs = graphes de la fenêtre ({ tout, amenage, confort }). Coût : trois Dijkstra.
+function minutesAcces(P, Gs, lon, lat, limiteS) {
+  const N = P.grille.nx * P.grille.ny, vide = () => new Float32Array(N).fill(Infinity);
+  let resTous = null;
+  const temps = (G, garder) => {
+    const acc = departs(P, G, lon, lat);
+    if (!acc.length) return vide();
+    const res = dijkstra(G, sourcesDijkstra(acc), 0, limiteS);
+    if (garder) resTous = res;
+    return tempsGrille(P, G, res);
+  };
+  const tous = temps(Gs.tout, true), pistes = temps(Gs.amenage);
+  const conf = minutesTranquilles(P, Gs.confort, lon, lat, limiteS * CFG.confort.surcout[1]);
+  const tranquille = vide();
+  for (let k = 0; k < N; k++) {
+    if (tous[k] < Infinity && teinteConfort(tous[k], conf[k]) === 0) tranquille[k] = tous[k];
+    if (pistes[k] < tranquille[k]) tranquille[k] = pistes[k];   // ce qu'on atteint par les pistes est tranquille aussi
+  }
+  return { pistes, tranquille, tous, resTous };   // resTous : arbre des plus rapides (itinéraires, maillons)
+}
+
+// Équipements de la fenêtre pour la carte : position exacte (ou centre de cellule), domaine, type, minutes (Infinity si non atteint)
+function equipementsFenetre(Cm, ix, g, minutes, compte) {
+  if (!Cm.eq) return [];
+  const out = [];
+  for (let x = 0; x < ix.eq.length; x++) {
+    const c = ix.eq[x];
+    if (c < 0 || !compte[c]) continue;
+    const i = c % g.nx, j = (c - i) / g.nx;
+    // Position exacte si comptages.py l'a donnée (p), sinon centre de cellule
+    const p = Cm.eq.p, dx = p ? (p[x] % 100 + .5) / 100 : .5, dy = p ? (Math.floor(p[x] / 100) + .5) / 100 : .5;
+    out.push({ cellule: c, lon: g.w + (i + dx) * g.dlon, lat: g.n - (j + dy) * g.dlat, d: Cm.eq.d[x], t: Cm.eq.t[x], f: Cm.eq.f[x],
+               min: minutes && minutes[c] >= 0 ? minutes[c] : Infinity });
+  }
+  return out;
+}
+
 if (typeof module !== "undefined") {
-  module.exports = { CFG, preparer, construireGraphe, dijkstra, accrocher, tempsGrille, itineraire, etapes, couverture, champIsolignes, accesSecondes, distanceM,
-    surfaceKm2, GRILLE_FRANCE, decompresserTuile, decoderTuile, recollerTuiles, ChargeurTuiles };
+  module.exports = { CFG, preparer, construireGraphe, lignesReseau, expose, minutesTranquilles, teinteConfort, CELLULE_KM2, traitsNoirs, grilleDeparts, cumulerMaillons, dijkstra, accrocher, rattacherGrille, tempsGrille, itineraire, etapes, couverture, champIsolignes, accesSecondes, distanceM,
+    surfaceKm2, GRILLE_FRANCE, l93VersWgs84, encoderTroncons, decoderTroncons, lireGeoJSON, versGeoJSON, longueurTroncon, noeudsProches, areteProche, aretesProches, croisements, voies, voieAuClic, decoderMasque, appliquerMasque, ajouterTroncons, gainSurface, gainConfort, departs, sourcesDijkstra, decompresserTuile, decoderTuile, recollerTuiles, ChargeurTuiles,
+    preparerComptages, indexerComptages, compterAtteints, plusProcheParFonction, casFonctions, CAS, equipementsFenetre, minutesAcces };
 }
 // ===================================== FIN CŒUR =====================================

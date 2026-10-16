@@ -4,7 +4,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("fs");
 const path = require("path");
-const C = require("../coeur.js");
+const C = require("../../coeur.js");
 
 // Petit monde synthétique : grille de 60 × 60 cellules de 0,001°, mer à l'est de lon 0,035.
 // Une route (classe 2) A–B au sud, une piste (classe 0) C–D au nord-ouest.

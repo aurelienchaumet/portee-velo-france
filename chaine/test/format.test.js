@@ -4,7 +4,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("fs");
 const path = require("path");
-const { decompresserTuile, decoderTuile } = require("../coeur.js");
+const { decompresserTuile, decoderTuile } = require("../../coeur.js");
 
 const FIX = path.join(__dirname, "fixtures");
 

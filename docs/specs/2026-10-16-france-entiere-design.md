@@ -112,11 +112,13 @@ Dans les deux cas, `tuiler.py` reprend où il s'était arrêté (`progression.js
 Chaque phase se termine par `node --test test/*.test.js` au vert et la non-régression OSM seul d'Oléron
 (≤ 1 point).
 
-## 8. Questions ouvertes
+## 8. Réponses d'Aurélien (16/10/2026)
 
-1. Calcul lourd : GitHub Actions (recommandé) ou serveur de Marennes ?
-2. Compte Cloudflare R2 : Aurélien le crée (moyen de paiement demandé) ; sinon, plan B = un dépôt Pages par
-   grande région (< 1 Go chacun), plus lourd à maintenir.
-3. Le dossier `departement17/` reste-t-il le lieu de travail du 17 pour le SIT, ce dépôt ne recevant que des
-   reports ? Ou ce dépôt devient-il la source et sit-pmo reprend `coeur.js` d'ici ? (TODOS.md « Réunifier »,
-   dans l'autre sens.)
+1. Calcul lourd : **GitHub Actions**, le serveur de Marennes en secours seulement.
+2. Compte Cloudflare créé. Reste à activer R2 (à vérifier : moyen de paiement demandé ou non à l'activation).
+3. **Le dépôt du SIT fait foi** pour le code commun. Ce dépôt en reçoit des copies, avec la même disposition :
+   racine = racine du site sit-pmo (`index.html`, `coeur.js`, `build_graph_velo.py`), `chaine/` = `departement17/`.
+   Les chemins relatifs (`../../coeur.js`, `ICI.parent`) restent donc valables tels quels.
+
+Phase 0 faite le 16/10/2026 (60 tests au vert). Le re-tuilage du 17 en OSM seul passe en phase 1, directement
+dans `tuiles/fr/` : on ne tuile qu'une fois.

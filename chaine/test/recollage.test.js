@@ -5,7 +5,7 @@ const assert = require("node:assert/strict");
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
-const C = require("../coeur.js");
+const C = require("../../coeur.js");
 
 const DOSSIER = path.join(__dirname, "fixtures", "oleron");
 const SAINT_PIERRE = [-1.3063, 45.9443];          // départ par défaut de la carte Oléron

@@ -7,15 +7,24 @@
 // est dans le contour du territoire (fourni par le fichier ancien) ET sur la terre.
 //
 // Usage (depuis france/, après tuiler.py --emprise=-1.6,45.55,-0.75,46.15 --sortie cache/tuiles_nr) :
-//   node test/non_regression.js [dossier_tuiles]
+//   node test/non_regression.js [dossier_tuiles] [collectivites]
+// Avec « collectivites » : référence = carte en ligne au 08/10/2026 (réseau CCIO + CCBM, test/ancien/portee_velo.js),
+// à comparer aux tuiles produites avec tuiler.py --reseau. Seules les tuiles autour du territoire sont chargées
+// (les 380 tuiles du 17 saturent la mémoire du poste).
 const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
-const nouveau = require("../coeur.js");
+const nouveau = require("../../coeur.js");
+// Même modèle que l'ancienne carte : on compare les chaînes de données, pas les majorations sur route (temps réels
+// depuis le 11/10/2026) ni les liaisons entre pistes (12/10/2026)
+nouveau.CFG.penalites.tout = [1, 1.1, 1.5, 2, 3, 1.5, 1.5, 1.5];
+nouveau.CFG.liaisonMaxM = 0;
 
 const DOSSIER = process.argv[2] || path.join(__dirname, "..", "cache", "tuiles_nr");
-const ANCIEN_JS = path.join(__dirname, "..", "..", "data", "portee_velo_osm.js");
-const ANCIEN_COEUR = path.join(__dirname, "..", "..", "coeur.js");
+const COLLECTIVITES = process.argv[3] === "collectivites";
+const ANCIEN_JS = path.join(__dirname, "ancien", COLLECTIVITES ? "portee_velo.js" : "portee_velo_osm.js");   // cartes du 08/10/2026, figées
+const ANCIENNE_VAR = COLLECTIVITES ? "PORTEE_VELO" : "PORTEE_VELO_OSM";
+const ANCIEN_COEUR = path.join(__dirname, "ancien", "coeur.js");          // coeur.js de cette carte, figé
 const DEPARTS = { "Saint-Pierre": [-1.3063, 45.9443], "Marennes": [-1.1060, 45.8226] };
 const SEUILS = [15, 30, 45];
 const TOLERANCE_PT = 1;
@@ -27,7 +36,7 @@ function chargerAncien() {
   const C = ctx.module.exports;
   const win = {};
   vm.runInNewContext(fs.readFileSync(ANCIEN_JS, "utf8"), { window: win });
-  return { C, D: win.PORTEE_VELO_OSM };
+  return { C, D: win[ANCIENNE_VAR] };
 }
 
 // Point dans un MultiPolygon GeoJSON (règle pair-impair, trous compris)
@@ -55,7 +64,15 @@ async function main() {
   const PA = A.preparer(D);
 
   const index = JSON.parse(fs.readFileSync(path.join(DOSSIER, "tuiles.json"), "utf8"));
-  const tuiles = await Promise.all(index.tuiles.map(async ([tx, ty]) =>
+  // Tuiles qui recoupent l'emprise du contour (+ 0,3°)
+  let [w, s, e, n] = [180, 90, -180, -90];
+  for (const poly of D.contour.coordinates) for (const anneau of poly) for (const [x, y] of anneau) {
+    w = Math.min(w, x); e = Math.max(e, x); s = Math.min(s, y); n = Math.max(n, y);
+  }
+  const gr = index.grille, lt = gr.dlon * gr.cellulesTuile, ht = gr.dlat * gr.cellulesTuile;
+  const utile = ([tx, ty]) => gr.lon0 + (tx + 1) * lt > w - 0.3 && gr.lon0 + tx * lt < e + 0.3
+    && gr.lat0 - ty * ht > s - 0.3 && gr.lat0 - (ty + 1) * ht < n + 0.3;
+  const tuiles = await Promise.all(index.tuiles.filter(utile).map(async ([tx, ty]) =>
     nouveau.decoderTuile(await nouveau.decompresserTuile(fs.readFileSync(path.join(DOSSIER, `${tx}_${ty}.bin`))))));
   const PN = nouveau.recollerTuiles(tuiles);
   // Cellules comptées : centre dans le territoire et sur la terre

@@ -1,7 +1,9 @@
 """Étape 2 de la chaîne France : GeoParquet OSM → tuiles de graphe vélo (format v1, format_tuile.py).
 
 Reprend les règles de la carte Marennes-Oléron (classer() de ../build_graph_velo.py : classes,
-vitesses, sens uniques) sans les cas propres à Oléron (pont, réseau des collectivités).
+vitesses, sens uniques). Avec --reseau, sur Marennes-Oléron, le réseau consolidé des collectivités
+(CCIO + CCBM, consolider_reseau.py) remplace les pistes OSM, comme build_graph_velo.py --reseau
+(integrer_reseau : croisements, extrémités raccordées à 25 m). Pas de traitement spécial du pont.
 
 Étapes :
   1. tuiles à produire = toutes celles qui touchent une des emprises demandées ;
@@ -15,7 +17,7 @@ vitesses, sens uniques) sans les cas propres à Oléron (pont, réseau des colle
      de plus de 1 ha ; nœud le plus proche et distance pour chaque mode ;
   7. écriture des tuiles {tx}_{ty}.bin et de l'index tuiles.json.
 
-Usage (depuis france/) :
+Usage (depuis departement17/) :
   .venv/Scripts/python.exe -I -X utf8 tuiler.py --parquet cache/poitou-charentes-261008.parquet \\
       --emprise -1.45,45.75,-0.95,46.1 --sortie tuiles
 """
@@ -38,7 +40,22 @@ from scipy.spatial import cKDTree
 
 ICI = Path(__file__).resolve().parent
 sys.path[:0] = [str(ICI), str(ICI.parent)]   # -I retire le dossier du script du chemin
-from build_graph_velo import CLASSES_AMEN, classer  # noqa: E402  règles communes avec la carte Oléron
+from build_graph_velo import (CLASSES_AMEN, CLES_CYCLEWAY, TAMPON_CONTOUR_M,  # noqa: E402  règles communes
+                              classer, integrer_reseau)                          # avec la carte Oléron
+# Classes fines (11/10/2026, décision D1) : la classe 2 de classer() est découpée selon highway pour que la
+# page regroupe librement en niveaux de confort sans re-tuiler. 3 bits de classe dans attr : 5 à 7 étaient libres.
+CLASSE_FINE = {"unclassified": 5, "track": 6, "path": 6, "footway": 6, "pedestrian": 6, "bridleway": 6,
+               "tertiary": 7, "tertiary_link": 7}   # le reste (residential, living_street, service, road) reste en 2
+
+
+def classer_fin(tags):
+    """classer() de la carte Oléron, puis classe 2 découpée : 2 rues/service, 5 unclassified, 6 chemins, 7 tertiary."""
+    r = classer(tags)
+    if r is None or r[0] != 2:
+        return r
+    return (CLASSE_FINE.get(tags.get("highway"), 2), *r[1:])
+
+
 from format_tuile import CELLULES_TUILE, DLAT, DLON, LAT0, LON0, encoder_tuile  # noqa: E402
 
 DOSSIER_EXT_DUCKDB = ICI / "cache" / "duckdb_ext"     # extensions DuckDB sur D:, pas dans ~/.duckdb (C:)
@@ -89,7 +106,9 @@ def prefiltrer(con, parquets, boites, chemin):
 
 
 def lire_voies(con, source, boites):
-    """Voies cyclables classées d'une zone : liste de (coords lon/lat ndarray, classe, vitesse, sens)."""
+    """Voies cyclables classées d'une zone : liste de (coords lon/lat ndarray, classe, vitesse, sens, route).
+    route = classe de la voie sans ses tags de bande cyclable (bandes seulement, sinon -1) : sur le territoire
+    des collectivités, une bande OSM redevient la route qui la porte (retirer la bande couperait la route)."""
     voies, ecartees = [], 0
     res = con.execute("""
         SELECT DISTINCT ON (feature_id) feature_id, tags, ST_AsWKB(geometry) FROM read_parquet(?)
@@ -97,14 +116,18 @@ def lire_voies(con, source, boites):
           AND ST_Intersects(geometry, ST_GeomFromText(?))
         ORDER BY feature_id""", [source, zone_wkt(boites)]).fetchall()   # ordre fixe : tuiles identiques d'une génération à l'autre
     for _fid, tags, wkb in res:
-        r = classer(tags)
+        r = classer_fin(tags)
         if r is None:
             ecartees += 1
             continue
         g = shapely.from_wkb(bytes(wkb))
         if g.geom_type == "Polygon":       # voie fermée (boucle, rond-point) lue comme surface par QuackOSM
             g = g.exterior
-        voies.append((np.asarray(g.coords)[:, :2], *r))
+        route = -1
+        if r[0] == 1:
+            rr = classer_fin({k: v for k, v in tags.items() if k not in CLES_CYCLEWAY + ("bicycle_road", "cyclestreet")})
+            route = rr[0] if rr else -1
+        voies.append((np.asarray(g.coords)[:, :2], *r, route))
     print(f"  {len(voies)} voies cyclables, {ecartees} écartées par classer()")
     return voies
 
@@ -125,15 +148,15 @@ def densifier(xy):
 
 
 def construire_graphe(voies):
-    """Nœuds (lon, lat en degrés) et arêtes (a, b, classe, vitesse, sens) à partir des tracés."""
+    """Nœuds (lon, lat en degrés) et arêtes (a, b, [classe, vitesse, sens, route]) à partir des tracés."""
     pts, ea, attrs = [], [], []
     debut = 0
-    for xy, classe, vit, sens in voies:
+    for xy, classe, vit, sens, route in voies:
         xy = densifier(xy)
         n = len(xy)
         pts.append(xy)
         ea.append(np.arange(debut, debut + n - 1))
-        attrs.append(np.repeat([[classe, vit, sens]], n - 1, axis=0))
+        attrs.append(np.repeat([[classe, vit, sens, route]], n - 1, axis=0))
         debut += n
     pts = np.vstack(pts)
     # Clé de nœud : coordonnées entières au 1e-7 degré (précision native des PBF)
@@ -145,6 +168,84 @@ def construire_graphe(voies):
     attr = np.vstack(attrs)
     garde = a != b                                  # points doublés dans un même tracé
     return uniques / 1e7, a[garde], b[garde], attr[garde]
+
+
+def integrer_collectivites(noeuds, a, b, attr, coll, vers_l93):
+    """Marennes-Oléron : réseau consolidé des collectivités à la place des pistes OSM (build_graph_velo.py --reseau).
+    coll = (territoire en Lambert 93 tamponné de TAMPON_CONTOUR_M, chemin du GeoJSON consolidé).
+    Renvoie (noeuds, a, b, attr) ; les nœuds créés (croisements, raccords) sont ajoutés à la fin de noeuds."""
+    terr, chemin = coll
+    x, y = vers_l93.transform(noeuds[:, 0], noeuds[:, 1])
+    dedans = shapely.contains_xy(terr, x, y)
+    if not dedans.any():
+        return noeuds, a, b, attr
+    # 1. Arêtes aux deux bouts dans le territoire : pistes OSM retirées, bandes ramenées à leur route
+    attr = attr.copy()
+    interieur = dedans[a] & dedans[b]
+    bande = interieur & (attr[:, 0] == 1)
+    attr[bande, 0] = attr[bande, 3]
+    garde = ~(interieur & (attr[:, 0] == 0)) & (attr[:, 0] >= 0)
+    print(f"  collectivités : {int((interieur & ~garde).sum())} arêtes OSM de pistes retirées, "
+          f"{int((bande & garde).sum())} bandes ramenées à leur route")
+    a, b, attr = a[garde], b[garde], attr[garde]
+    # 2. Sous-graphe autour du territoire (emprise + 1 km) confié à integrer_reseau : seulement lui, pas le
+    #    département entier (liste Python d'arêtes, ~300 octets chacune)
+    x0, y0, x1, y1 = terr.bounds
+    proche = (x >= x0 - 1000) & (x <= x1 + 1000) & (y >= y0 - 1000) & (y <= y1 + 1000)
+    sel = proche[a] | proche[b]
+    ids = np.unique(np.concatenate([a[sel], b[sel]]))
+    coords = {int(i): (float(noeuds[i, 0]), float(noeuds[i, 1])) for i in ids}
+    sous = [(int(u), int(v), int(c), int(vt), int(sn), 0, 0, None)
+            for u, v, (c, vt, sn, _r) in zip(a[sel].tolist(), b[sel].tolist(), attr[sel].tolist())]
+    vers_wgs = Transformer.from_crs(2154, 4326, always_xy=True)
+    integrer_reseau(chemin, sous, coords, lambda nom: 0, vers_l93, vers_wgs)
+    # 3. Nœuds créés (ids négatifs -1, -2, …) numérotés à la suite des nœuds existants
+    nouveaux = sorted((k for k in coords if k < 0), reverse=True)
+    num = {k: len(noeuds) + i for i, k in enumerate(nouveaux)}
+    if nouveaux:
+        noeuds = np.vstack([noeuds, np.array([coords[k] for k in nouveaux], dtype=float)])
+    sa = np.array([num.get(e[0], e[0]) for e in sous], dtype=np.int64)
+    sb = np.array([num.get(e[1], e[1]) for e in sous], dtype=np.int64)
+    sattr = np.array([[e[2], e[3], e[4], -1] for e in sous], dtype=np.int64).reshape(-1, 4)
+    return noeuds, np.concatenate([a[~sel], sa]), np.concatenate([b[~sel], sb]), np.vstack([attr[~sel], sattr])
+
+
+EPCI_OLERON = "241700624"           # CdC de l'île d'Oléron (les 6 autres communes : CC du bassin de Marennes)
+
+
+def ecrire_territoires(gj, sortie, masque, con, source):
+    """territoires.json pour les vues ?territoire= de la page : pmo (14 communes) et oleron (île seule).
+    Pour chacun : contour simplifié à ~20 m (dessin, départ dans le territoire) et masque des cellules comptées
+    dans le % de couverture = centre dans le contour exact ET sur la terre (même règle que test/non_regression.js ;
+    sans la terre, les marais et claires en eau resteraient au dénominateur et le % plafonnerait sous 100).
+    Masque sur la grille des tuiles : origine (i0, j0) en cellules, nx × ny, codé par plages alternées 0 / 1."""
+    def territoire(features, nom, chapeau):
+        exact = shapely.union_all([shapely.geometry.shape(f["geometry"]) for f in features])
+        w, s_, e, n = exact.bounds
+        i0, j0 = math.floor((w - LON0) / DLON), math.floor((LAT0 - n) / DLAT)
+        nx, ny = math.ceil((e - LON0) / DLON) - i0, math.ceil((LAT0 - s_) / DLAT) - j0
+        ii, jj = np.meshgrid(np.arange(nx), np.arange(ny))
+        clon = (LON0 + (i0 + ii + 0.5) * DLON).ravel()
+        clat = (LAT0 - (j0 + jj + 0.5) * DLAT).ravel()
+        shapely.prepare(exact)
+        m = shapely.contains_xy(exact, clon, clat) & masque.cellules(clon, clat)
+        bords = np.flatnonzero(np.diff(np.concatenate([[0], m.astype(np.int8), [0]])))   # débuts / fins des plages de 1
+        plages, avant = [], 0
+        for deb, fin in zip(bords[::2], bords[1::2]):
+            plages += [int(deb - avant), int(fin - deb)]
+            avant = fin
+        simple = shapely.set_precision(exact.simplify(0.0002), 1e-5)
+        print(f"  territoire {nom} : {int(m.sum())} cellules de terre")
+        return {"nom": nom, "chapeau": chapeau, "geometrie": json.loads(shapely.to_geojson(simple)),
+                "masque": {"i0": i0, "j0": j0, "nx": nx, "ny": ny, "total": int(m.sum()), "plages": plages}}
+    feats = gj["features"]
+    exact = shapely.union_all([shapely.geometry.shape(f["geometry"]) for f in feats])
+    masque.charger_eaux(con, source, [exact.bounds])         # plans d'eau du territoire (quel que soit le groupe en cours)
+    territoires = {
+        "pmo": territoire(feats, "Marennes-Oléron", "du Pôle Marennes-Oléron (île d'Oléron et bassin de Marennes)"),
+        "oleron": territoire([f for f in feats if f["properties"].get("codeEpci") == EPCI_OLERON], "l'île d'Oléron", "de l'île d'Oléron"),
+    }
+    (sortie / "territoires.json").write_text(json.dumps(territoires, ensure_ascii=False, separators=(",", ":")), "utf-8")
 
 
 def tuile_xy(lon, lat):
@@ -259,7 +360,7 @@ def ecrire_controle(chemin, n, a, b, l_dm, attr):
                                   "empreinte": hashlib.sha256("\n".join(lignes).encode()).hexdigest()}), "utf-8")
 
 
-def traiter_groupe(con, source, tuiles, base0, masque, vers_l93, sortie, controle):
+def traiter_groupe(con, source, tuiles, base0, masque, vers_l93, sortie, controle, coll=None):
     """Graphe, numérotation (à partir de base0) et écriture des tuiles d'un groupe de tuiles contiguës.
     Renvoie (lignes de l'index, nombre de nœuds, octets écrits)."""
     lt, ht = DLON * CELLULES_TUILE, DLAT * CELLULES_TUILE
@@ -270,12 +371,14 @@ def traiter_groupe(con, source, tuiles, base0, masque, vers_l93, sortie, control
     ordre_tuile = {t: k for k, t in enumerate(sorted(tuiles, key=lambda t: (t[1], t[0])))}
     if voies:
         noeuds, a, b, attr = construire_graphe(voies)
+        if coll:
+            noeuds, a, b, attr = integrer_collectivites(noeuds, a, b, attr, coll, vers_l93)
         tx, ty = tuile_xy(noeuds[:, 0], noeuds[:, 1])
         dans = np.array([(x, y) in tuiles for x, y in zip(tx.tolist(), ty.tolist())])
         garde = dans[a] & dans[b]
         a, b, attr = a[garde], b[garde], attr[garde]
     if not voies or len(a) == 0:
-        noeuds, a, b, attr = np.zeros((0, 2)), np.zeros(0, np.int64), np.zeros(0, np.int64), np.zeros((0, 3), np.int64)
+        noeuds, a, b, attr = np.zeros((0, 2)), np.zeros(0, np.int64), np.zeros(0, np.int64), np.zeros((0, 4), np.int64)
         tx = ty = np.zeros(0, np.int64)
     else:
         # Plus grande composante connexe du groupe (comme build_graph_velo.py)
@@ -352,7 +455,11 @@ def main():
     ap.add_argument("--marge-km", type=float, default=25, help="marge autour du département (défaut 25 km)")
     ap.add_argument("--chefs-lieux", help="chefs_lieux.json : ajoute une emprise de --rayon-km autour de chaque mairie")
     ap.add_argument("--rayon-km", type=float, default=8, help="demi-côté de l'emprise autour d'une mairie (défaut 8 km)")
-    ap.add_argument("--sortie", default="tuiles", help="dossier des tuiles")
+    ap.add_argument("--sortie", default=str(ICI.parent / "tuiles"), help="dossier des tuiles (défaut : tuiles/ du site, dossier parent)")
+    ap.add_argument("--reseau", help="réseau consolidé des collectivités (GeoJSON EPSG:2154, consolider_reseau.py) : "
+                    "remplace les pistes OSM sur le territoire de --territoire")
+    ap.add_argument("--territoire", default=str(ICI.parent / "cache" / "contour_territoire.geojson"),
+                    help="communes du territoire des collectivités (GeoJSON WGS84 ; défaut : Marennes-Oléron)")
     ap.add_argument("--controle", help="écrit l'empreinte du graphe complet (test de recollage sans perte)")
     ap.add_argument("--duree-max-min", type=float, default=0,
                     help="s'arrête proprement après ce temps (0 = sans limite) ; relancer la même commande reprend")
@@ -385,7 +492,7 @@ def main():
     # Plusieurs fichiers ou plusieurs groupes : une seule lecture des sources vers un fichier intermédiaire
     # Reprise : la progression (groupes faits, index, numéro de nœud suivant) est enregistrée après chaque
     # groupe ; une relance avec les mêmes arguments repart du groupe suivant. Signature = arguments.
-    signature = json.dumps([sorted(parquets), sorted(map(list, tuiles))])
+    signature = json.dumps([sorted(parquets), sorted(map(list, tuiles)), args.reseau])
     fichier_prog = sortie / "progression.json"
     prog = json.loads(fichier_prog.read_text("utf-8")) if fichier_prog.exists() else None
     if not prog or prog["signature"] != signature:
@@ -404,6 +511,15 @@ def main():
     masque = MasqueTerre(emprise, vers_l93)
 
     controle = [] if args.controle else None
+    coll = None
+    if args.reseau:
+        gj = json.loads(Path(args.territoire).read_text("utf-8"))
+        terr = shapely.union_all([shapely.geometry.shape(f["geometry"]) for f in gj["features"]])
+        terr_l93 = shapely.transform(terr, lambda xy: np.column_stack(vers_l93.transform(xy[:, 0], xy[:, 1])))
+        terr_l93 = terr_l93.buffer(TAMPON_CONTOUR_M)        # garde les voies littorales un peu hors contour communal
+        shapely.prepare(terr_l93)                            # contains_xy sur des millions de nœuds
+        coll = (terr_l93, args.reseau)
+        print(f"Réseau des collectivités : {args.reseau} sur {len(gj['features'])} communes")
     ordre = sorted(groupes.values(), key=lambda tg: min((t[1], t[0]) for t in tg))
     # Groupes traités l'un après l'autre (mémoire = un seul groupe) ; numérotation continue d'un groupe à l'autre
     for rang in range(prog["faits"], len(ordre)):
@@ -412,7 +528,7 @@ def main():
             return
         tg = ordre[rang]
         print(f"Groupe {rang + 1}/{len(ordre)} : {len(tg)} tuiles")
-        lignes, nb, octets = traiter_groupe(con, source, tg, prog["base"], masque, vers_l93, sortie, controle)
+        lignes, nb, octets = traiter_groupe(con, source, tg, prog["base"], masque, vers_l93, sortie, controle, coll)
         prog["index"] += lignes
         prog["base"] += nb
         prog["octets"] += octets
@@ -425,10 +541,13 @@ def main():
     (sortie / "tuiles.json").write_text(json.dumps({
         "version": 1, "genere": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "sources": [Path(p).name for p in parquets], "terre": TERRE_ZIP.name,
+        "collectivites": bool(args.reseau),        # réseau CCIO + CCBM intégré sur Marennes-Oléron
         "grille": {"lon0": LON0, "lat0": LAT0, "dlon": DLON, "dlat": DLAT, "cellulesTuile": CELLULES_TUILE},
         "tuiles": index,
     }, ensure_ascii=False), "utf-8")
     fichier_prog.unlink()                                        # terminé : plus rien à reprendre
+    if args.reseau:
+        ecrire_territoires(gj, sortie, masque, con, source)
     print(f"Écrit : {len(index)} tuiles, {base} nœuds, {octets_total / 1024 ** 2:.1f} Mo, "
           f"{octets_total / 1024 / max(1, len(index)):.0f} Ko par tuile en moyenne, en {time.time() - t0:.0f} s")
 
