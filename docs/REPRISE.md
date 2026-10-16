@@ -60,4 +60,18 @@ Fait le 16/10/2026 (2e session) :
 Contrôle visuel depuis une session cloud : le CDN (Leaflet, d3) et le fond IGN y sont bloqués ; Playwright
 avec `page.route` pour servir le site et des copies npm de Leaflet 1.9.4 et d3 7.9.0 suffit (carte sans fond).
 
+## Phase 2 (16/10/2026)
+
+- Les 5 DROM tuilés sur Actions (marge 2 km) : 971 (90 tuiles, 2,2 Mo), 972 (36, 2,1 Mo), 973 (1 428 tuiles dont
+  149 non vides, 7,5 Mo : forêt), 974, 976 (20, 0,9 Mo). Run de 3 min 30 pour les quatre.
+- Départs : Les Abymes (971), Fort-de-France (972 : « ancienne mairie » écartée, `lieux.py`, relancé), Cayenne
+  (973), Saint-Denis (974), Mamoudzou (976).
+- `tuiler.py` : contour de repli (niveau 4 ou ref:INSEE, puis union des communes) ; arrêt si l'emprise sort
+  de la grille (numéros de tuile négatifs). Pas eu besoin du repli : les 5 DROM ont leur relation de niveau 6.
+- Page : sélecteur de territoire sous le titre (`?zone=`), contrôlé dans Chromium pour les 6 territoires.
+
+Reste (phase 2) : rien de bloquant. À voir : en Guyane, la vue d'ensemble est très dézoomée (le littoral
+seul est peuplé) ; habitants absents en Guadeloupe, Guyane et Mayotte (Filosofi) à dire sur la page quand
+l'accessibilité arrivera (phase 6).
+
 Phases suivantes : voir la spec (§7).
