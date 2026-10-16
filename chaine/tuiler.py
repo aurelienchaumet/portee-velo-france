@@ -333,13 +333,33 @@ def ecrire_contour_departement(con, parquets, code, marge_km, sortie, vers_metre
     """Contour OSM du département (boundary=administrative, admin_level=6, ref=code) : écrit contour.json
     (GeoJSON simplifié, pour la page : limite du survol ; nom et ses formes, départ par défaut, marge,
     voir lieux.py) et renvoie l'emprise élargie de marge_km."""
+    src = [str(p) for p in parquets]
     r = con.execute(f"""
-        SELECT tags['name'], ST_AsWKB(geometry) FROM read_parquet({[str(p) for p in parquets]!r})
+        SELECT tags['name'], ST_AsWKB(geometry) FROM read_parquet({src!r})
         WHERE tags['boundary'] = 'administrative' AND tags['admin_level'] = '6' AND tags['ref'] = ?
           AND ST_GeometryType(geometry) IN ('POLYGON', 'MULTIPOLYGON') LIMIT 1""", [code]).fetchone()
-    if not r:
-        sys.exit(f"département {code} absent des GeoParquet fournis")
-    nom, geom = r[0], shapely.from_wkb(bytes(r[1]))
+    if r:
+        nom, geom = r[0], shapely.from_wkb(bytes(r[1]))
+    else:
+        # DROM (département et région à la fois) : la relation peut porter un autre niveau ou ref:INSEE ; à défaut,
+        # union des communes du département (comme chefs_lieux.py pour le Rhône ou la Marne)
+        r = con.execute(f"""
+            SELECT tags['name'], ST_AsWKB(geometry) FROM read_parquet({src!r})
+            WHERE tags['boundary'] = 'administrative' AND tags['admin_level'] IN ('4', '6')
+              AND (tags['ref'] = ? OR tags['ref:INSEE'] = ?)
+              AND ST_GeometryType(geometry) IN ('POLYGON', 'MULTIPOLYGON') ORDER BY tags['admin_level'] DESC LIMIT 1""",
+            [code, code]).fetchone()
+        if r:
+            nom, geom = r[0], shapely.from_wkb(bytes(r[1]))
+        else:
+            communes = [shapely.from_wkb(bytes(c[0])) for c in con.execute(f"""
+                SELECT ST_AsWKB(geometry) FROM read_parquet({src!r})
+                WHERE tags['boundary'] = 'administrative' AND tags['admin_level'] = '8' AND starts_with(tags['ref:INSEE'], ?)
+                  AND ST_GeometryType(geometry) IN ('POLYGON', 'MULTIPOLYGON')""", [code]).fetchall()]
+            if not communes:
+                sys.exit(f"département {code} absent des GeoParquet fournis")
+            nom, geom = TERRITOIRES.get(code, {}).get("nom", code), shapely.union_all(shapely.make_valid(communes))
+            print(f"  contour du {code} reconstitué à partir de {len(communes)} communes")
     sortie.mkdir(parents=True, exist_ok=True)
     simple = shapely.simplify(geom, 0.0005)                  # ~50 m : assez pour tester « dans le département »
     simple = nettoyer_contour(simple, vers_metres)           # sans les rochers devenus carrés de 4 points
@@ -490,6 +510,9 @@ def main():
             emprises.append((c["lon"] - dlon, c["lat"] - dlat, c["lon"] + dlon, c["lat"] + dlat))
     if not emprises:
         ap.error("--emprise, --departement ou --chefs-lieux requis")
+    # La grille part de son coin nord-ouest : une emprise au nord ou à l'ouest donnerait des numéros de tuile négatifs
+    if min(e[0] for e in emprises) < LON0 or max(e[3] for e in emprises) > LAT0:
+        sys.exit(f"emprise hors de la grille {args.grille} (origine {LON0}, {LAT0}) : déplacer l'origine dans format_tuile.py")
     tuiles = tuiles_des_emprises(emprises)
     groupe = groupes_de_tuiles(tuiles)
     groupes = {}
