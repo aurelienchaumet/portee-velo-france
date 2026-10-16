@@ -37,10 +37,10 @@ Dépendances Python : duckdb (+ extension spatial), quackosm, numpy, scipy, shap
 ## Reste à faire
 
 Phase 1 :
-1. `tuiles/fr/` : le 17 re-tuilé en OSM seul par GitHub Actions (`.github/workflows/tuiler.yml`, lancé par le
-   push qui modifie `chaine/a_tuiler.json` ; les tuiles reviennent en commit du bot sur la branche). Vérifier le
-   run, puis contrôle visuel de `index.html` (sans `?zone`) et non-régression OSM seul d'Oléron (≤ 1 point).
-   Tant que `tuiles/fr/` manque, la page sans `?zone` affiche « Données indisponibles ».
+1. ~~`tuiles/fr/`~~ fait le 16/10/2026 par GitHub Actions (run 1, 10 min) : 17 + 25 km, 380 tuiles, 24 Mo,
+   départ à l'hôtel de ville de La Rochelle ; Réunion re-tuilée, départ à l'hôtel de ville de Saint-Denis.
+   Non-régression OSM seul d'Oléron : tous les écarts ≤ 1 point (`node test/non_regression.js ../tuiles/fr`).
+   Pour re-tuiler : modifier `chaine/a_tuiler.json` et pousser (le bot pousse les tuiles sur la branche).
 2. Les anciennes tuiles à la racine de `tuiles/` (96 chefs-lieux, ancien format) ne servent plus qu'à
    `france.html` : à remplacer en phase 4.
 3. Carré gris au nord-ouest de la Réunion (vers Saint-Paul) : vient du fond IGN, pas des tuiles. À revoir à
