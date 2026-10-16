@@ -67,10 +67,21 @@ jobs:
           done
       - name: Tuilage
         working-directory: chaine
+        env:
+          T: ${{ toJson(matrix.t) }}
         run: |
-          rm -rf ../${{ matrix.t.sortie }}
-          python -I -X utf8 tuiler.py --grille ${{ matrix.t.grille }} --parquet 'cache/regions/*.parquet' \
-            --departement ${{ matrix.t.departement }} --marge-km ${{ matrix.t.marge_km }} --sortie ../${{ matrix.t.sortie }}
+          rm -rf "../$(jq -r .sortie <<< "$T")"
+          # Emprise : un département et sa marge (contour, nom, départ), ou des boîtes lon_min,lat_min,lon_max,lat_max
+          if [ "$(jq -r '.departement // empty' <<< "$T")" ]; then
+            zone=(--departement "$(jq -r .departement <<< "$T")" --marge-km "$(jq -r .marge_km <<< "$T")")
+          else
+            zone=(); for e in $(jq -r '.emprises[]' <<< "$T"); do zone+=(--emprise "$e"); done
+          fi
+          # /usr/bin/time -v : mémoire maximale, pour extrapoler à la métropole (phase 4)
+          /usr/bin/time -v -o ../mesure.txt python -I -X utf8 tuiler.py --grille "$(jq -r .grille <<< "$T")" \
+            --parquet 'cache/regions/*.parquet' "${zone[@]}" --sortie "../$(jq -r .sortie <<< "$T")"
+          grep -E "Maximum resident|Elapsed" ../mesure.txt
+          echo "RAM max : $(awk '/Maximum resident/ {printf "%.1f Go", $NF / 1048576}' ../mesure.txt), durée : $(awk -F': ' '/Elapsed/ {print $2}' ../mesure.txt), $(find "../$(jq -r .sortie <<< "$T")" -name '*.bin' | wc -l) tuiles, $(du -sh "../$(jq -r .sortie <<< "$T")" | cut -f1)" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         with:
           name: tuiles-${{ matrix.t.nom }}
@@ -88,7 +99,8 @@ jobs:
           path: artefacts
       - name: Tuiles → dépôt
         run: |
-          for t in $(echo '${{ needs.plan.outputs.matrice }}' | jq -r '.[] | "\(.nom)=\(.sortie)"'); do
+          # Les essais ("essai": true) ne reviennent pas dans le dépôt : mesures seulement
+          for t in $(echo '${{ needs.plan.outputs.matrice }}' | jq -r '.[] | select(.essai != true) | "\(.nom)=\(.sortie)"'); do
             nom=${t%%=*}; sortie=${t#*=}
             [ -d "artefacts/tuiles-$nom" ] || { echo "::warning::tuilage $nom absent (échec ?)"; continue; }
             rm -rf "$sortie" && mkdir -p "$sortie" && cp -r "artefacts/tuiles-$nom/." "$sortie/"
