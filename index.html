@@ -572,9 +572,13 @@ document.getElementById("replier").addEventListener("click", e => {
   // ---------- Données : index des tuiles et contour du département ----------
   // fetch ne fonctionne pas en ouvrant le fichier directement (file://) : il faut un serveur (GitHub Pages,
   // ou « python -m http.server » dans ce dossier)
+  // Territoire de la grille (16/10/2026) : ?zone=974 etc. (DROM), métropole par défaut ; une grille et un dossier
+  // de tuiles par territoire (tuiles/<zone>/), la grille est lue dans tuiles.json
+  const ZONE = /^(fr|97[1-46])$/.test(new URLSearchParams(location.search).get("zone")) ? new URLSearchParams(location.search).get("zone") : "fr";
+  const DOSSIER = `tuiles/${ZONE}/`;
   let index, contourDep;
   try {
-    [index, contourDep] = await Promise.all(["tuiles/tuiles.json", "tuiles/contour.json"].map(u => fetch(u).then(r => {
+    [index, contourDep] = await Promise.all([DOSSIER + "tuiles.json", DOSSIER + "contour.json"].map(u => fetch(u).then(r => {
       if (!r.ok) throw new Error(`${u} : ${r.status}`);
       return r.json();
     })));
@@ -586,13 +590,14 @@ document.getElementById("replier").addEventListener("click", e => {
       : `Données indisponibles (${e.message}).`;
     return;
   }
+  definirGrille(index.grille);
   // ---------- Vue d'un territoire (comme l'ancienne carte Marennes-Oléron) : ?territoire=oleron (l'île),
   // ?territoire=pmo (les 14 communes). Seul le territoire est coloré, l'emprise est bloquée dessus et la
   // couverture est en % de ses cellules de 100 m (centre dans le contour). Sans paramètre : tout le département.
   const TERRITOIRE = new URLSearchParams(location.search).get("territoire");
   let terr = null;
   if (["oleron", "pmo"].includes(TERRITOIRE)) {
-    try { terr = (await fetch("tuiles/territoires.json").then(r => r.json()))[TERRITOIRE]; } catch { terr = null; }
+    try { terr = (await fetch(DOSSIER + "territoires.json").then(r => r.json()))[TERRITOIRE]; } catch { terr = null; }
   }
   const zone = terr ? terr.geometrie : contourDep.geometrie;
   // Masque du territoire sur la grille des tuiles (tuiler.py : centre dans le contour et sur la terre), en plages
@@ -609,7 +614,7 @@ document.getElementById("replier").addEventListener("click", e => {
     $("#note-couverture").textContent = `Part des cellules de 100 m ${TERRITOIRE === "oleron" ? "de l'île" : "des 14 communes"} atteintes.`;
   }
 
-  const chargeur = new ChargeurTuiles({ index, lire: (tx, ty) => fetch(`tuiles/${tx}_${ty}.bin`).then(r => {
+  const chargeur = new ChargeurTuiles({ index, lire: (tx, ty) => fetch(`${DOSSIER}${tx}_${ty}.bin`).then(r => {
     if (!r.ok) throw new Error(`tuile ${tx}_${ty} : ${r.status}`);
     return r.arrayBuffer();
   }) });
@@ -669,7 +674,7 @@ document.getElementById("replier").addEventListener("click", e => {
   carte.options.maxBoundsViscosity = 1;
   if (terr) carte.setMinZoom(carte.getZoom() - 0.5);  // pas de dézoom au-delà de la vue d'ensemble du territoire
   // Départ par défaut : mairie de La Rochelle ; sur Marennes-Oléron, celle de Saint-Pierre-d'Oléron
-  const DEPART_DEFAUT = terr ? L.latLng(45.9443, -1.3063) : L.latLng(46.1595, -1.1513);
+  const DEPART_DEFAUT = terr ? L.latLng(45.9443, -1.3063) : ZONE === "fr" ? L.latLng(46.1595, -1.1513) : contour.getBounds().getCenter();
 
   let toile = null, ctx = null, image = null, chaleur = null;
   // Calque Leaflet qui affiche directement un <canvas> (au lieu d'une image PNG) : à chaque image du survol,
@@ -1376,7 +1381,7 @@ document.getElementById("replier").addEventListener("click", e => {
     + `<i style="background:${CRX_CHEMIN}"></i><span>Chemin (sans objet)</span>`
     + `<i class="presumee" style="background:#fff"></i><span>Vitesse présumée</span>`;
   function chargerCrx() {
-    if (!crx.charge) crx.charge = fetch("tuiles/intersections.json").then(r => (r.ok ? r.json() : null)).catch(() => null).then(D => {
+    if (!crx.charge) crx.charge = fetch(DOSSIER + "intersections.json").then(r => (r.ok ? r.json() : null)).catch(() => null).then(D => {
       if (!D || !Array.isArray(D.lon)) return null;
       const pts = D.lon.map((lo, i) => ({ lon: lo / 1e5, lat: D.lat[i] / 1e5, c: D.c[i], t: D.t[i], v: D.v[i], s: D.s[i], k: D.k[i], nom: D.noms[D.n[i]] || "" }))
         .filter(p => !terr || d3.geoContains(terr.geometrie, [p.lon, p.lat]));
@@ -1542,7 +1547,7 @@ document.getElementById("replier").addEventListener("click", e => {
     $("#acces .deplier").setAttribute("aria-expanded", String(accesDetail));
     $("#acces").querySelectorAll("tr.sous").forEach(tr => { tr.hidden = !accesDetail; });
   });
-  fetch("tuiles/accessibilite.json").then(r => (r.ok ? r.json() : null)).then(A => {
+  fetch(DOSSIER + "accessibilite.json").then(r => (r.ok ? r.json() : null)).then(A => {
     if (!A) return;
     acces = preparerComptages(A);
     $("#bloc-acces").hidden = false;
@@ -1618,10 +1623,10 @@ document.getElementById("replier").addEventListener("click", e => {
     }
     const installer = D => { if (epciDiag.code === code && D) { epciDiag.lus.set(code, D); installerDiag(D); } };
     if (epciDiag.lus.has(code)) { installer(epciDiag.lus.get(code)); return; }
-    fetch(`tuiles/diagnostic_epci_${code}.json`).then(r => (r.ok ? r.json() : null)).then(installer).catch(() => {});
+    fetch(`${DOSSIER}diagnostic_epci_${code}.json`).then(r => (r.ok ? r.json() : null)).then(installer).catch(() => {});
   }
   if (!masqueZone)
-    fetch("tuiles/epci.json").then(r => (r.ok ? r.json() : null)).then(E => {
+    fetch(DOSSIER + "epci.json").then(r => (r.ok ? r.json() : null)).then(E => {
       if (!E || !Array.isArray(E.epci)) return;
       epciDiag.liste = E.epci.map(e => {
         const polygones = e.geometrie.type === "Polygon" ? [e.geometrie.coordinates] : e.geometrie.coordinates, pts = polygones.flat(2);
@@ -1738,9 +1743,9 @@ document.getElementById("replier").addEventListener("click", e => {
     montrerInfo("Voie aménagée en piste. Le bloc « À portée » montre en violet ce que gagne ce départ, le plus peuplé parmi ceux que la voie concerne ; déplacez le repère D pour voir ailleurs.");
   });
   if (masqueZone)
-    fetch(`tuiles/diagnostic_${TERRITOIRE}.json`).then(r => (r.ok ? r.json() : null)).then(installerDiag).catch(() => {});
+    fetch(`${DOSSIER}diagnostic_${TERRITOIRE}.json`).then(r => (r.ok ? r.json() : null)).then(installerDiag).catch(() => {});
   if (TERRITOIRE === "oleron")
-    fetch("tuiles/maillons_oleron.json").then(r => (r.ok ? r.json() : null)).then(installerD4).catch(() => {});
+    fetch(DOSSIER + "maillons_oleron.json").then(r => (r.ok ? r.json() : null)).then(installerD4).catch(() => {});
 
   // ---------- Placement du départ : charge la fenêtre si on change de tuile centrale ----------
   let demande = 0;

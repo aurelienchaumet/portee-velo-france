@@ -950,6 +950,10 @@ function appliquerMasque(g, z, gi) {
 // ======================= TUILES (format v1, encodeur : format_tuile.py) =======================
 // Grille de France en degrés ; doit suivre LON0, LAT0, DLON, DLAT, CELLULES_TUILE de format_tuile.py
 const GRILLE_FRANCE = { lon0: -5.5, lat0: 51.5, dlon: 0.00125, dlat: 0.0009, cellulesTuile: 100, pasDistM: 10 };
+// Grille d'un autre territoire (DROM : tuiles.json → grille) : remplace les valeurs, garde l'objet partagé
+function definirGrille(g) {
+  for (const k of ["lon0", "lat0", "dlon", "dlat", "cellulesTuile"]) if (g && g[k] != null) GRILLE_FRANCE[k] = g[k];
+}
 
 // Décompresse un fichier de tuile (gzip) avec l'API native du navigateur / de Node ≥ 18
 async function decompresserTuile(buffer) {
@@ -1309,7 +1313,7 @@ function equipementsFenetre(Cm, ix, g, minutes, compte) {
 
 if (typeof module !== "undefined") {
   module.exports = { CFG, preparer, construireGraphe, lignesReseau, expose, minutesTranquilles, teinteConfort, CELLULE_KM2, traitsNoirs, grilleDeparts, cumulerMaillons, dijkstra, accrocher, rattacherGrille, tempsGrille, itineraire, etapes, couverture, champIsolignes, accesSecondes, distanceM,
-    surfaceKm2, GRILLE_FRANCE, l93VersWgs84, encoderTroncons, decoderTroncons, lireGeoJSON, versGeoJSON, longueurTroncon, noeudsProches, areteProche, aretesProches, croisements, voies, voieAuClic, decoderMasque, appliquerMasque, ajouterTroncons, gainSurface, gainConfort, departs, sourcesDijkstra, decompresserTuile, decoderTuile, recollerTuiles, ChargeurTuiles,
+    surfaceKm2, GRILLE_FRANCE, definirGrille, l93VersWgs84, encoderTroncons, decoderTroncons, lireGeoJSON, versGeoJSON, longueurTroncon, noeudsProches, areteProche, aretesProches, croisements, voies, voieAuClic, decoderMasque, appliquerMasque, ajouterTroncons, gainSurface, gainConfort, departs, sourcesDijkstra, decompresserTuile, decoderTuile, recollerTuiles, ChargeurTuiles,
     preparerComptages, indexerComptages, compterAtteints, plusProcheParFonction, casFonctions, CAS, equipementsFenetre, minutesAcces };
 }
 // ===================================== FIN CŒUR =====================================

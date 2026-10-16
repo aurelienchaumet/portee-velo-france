@@ -56,7 +56,7 @@ def classer_fin(tags):
     return (CLASSE_FINE.get(tags.get("highway"), 2), *r[1:])
 
 
-from format_tuile import CELLULES_TUILE, DLAT, DLON, LAT0, LON0, encoder_tuile  # noqa: E402
+from format_tuile import CELLULES_TUILE, DLAT, DLON, EPSG, LAT0, LON0, TERRITOIRES, choisir, encoder_tuile  # noqa: E402
 
 DOSSIER_EXT_DUCKDB = ICI / "cache" / "duckdb_ext"     # extensions DuckDB sur D:, pas dans ~/.duckdb (C:)
 TERRE_ZIP = ICI / "cache" / "land-polygons-split-4326.zip"
@@ -197,7 +197,7 @@ def integrer_collectivites(noeuds, a, b, attr, coll, vers_l93):
     coords = {int(i): (float(noeuds[i, 0]), float(noeuds[i, 1])) for i in ids}
     sous = [(int(u), int(v), int(c), int(vt), int(sn), 0, 0, None)
             for u, v, (c, vt, sn, _r) in zip(a[sel].tolist(), b[sel].tolist(), attr[sel].tolist())]
-    vers_wgs = Transformer.from_crs(2154, 4326, always_xy=True)
+    vers_wgs = Transformer.from_crs(EPSG, 4326, always_xy=True)
     integrer_reseau(chemin, sous, coords, lambda nom: 0, vers_l93, vers_wgs)
     # 3. Nœuds créés (ids négatifs -1, -2, …) numérotés à la suite des nœuds existants
     nouveaux = sorted((k for k in coords if k < 0), reverse=True)
@@ -451,6 +451,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--parquet", action="append", required=True, help="GeoParquet produit par extraire.py (répétable, motif * accepté)")
     ap.add_argument("--emprise", action="append", default=[], help="lon_min,lat_min,lon_max,lat_max (répétable)")
+    ap.add_argument("--grille", default="fr", choices=sorted(TERRITOIRES),
+                    help="grille du territoire (fr = métropole, 971 à 976 = DROM)  ; --sortie ../tuiles/<grille>)")
     ap.add_argument("--departement", help="code du département (ex. 17) : emprise = contour OSM + marge, contour écrit dans la sortie")
     ap.add_argument("--marge-km", type=float, default=25, help="marge autour du département (défaut 25 km)")
     ap.add_argument("--chefs-lieux", help="chefs_lieux.json : ajoute une emprise de --rayon-km autour de chaque mairie")
@@ -464,6 +466,8 @@ def main():
     ap.add_argument("--duree-max-min", type=float, default=0,
                     help="s'arrête proprement après ce temps (0 = sans limite) ; relancer la même commande reprend")
     args = ap.parse_args()
+    global LON0, LAT0, DLON, DLAT, EPSG             # grille du territoire, lue par toutes les fonctions du module
+    LON0, LAT0, DLON, DLAT, EPSG = choisir(args.grille)
     t0 = time.time()
     parquets = [str(p) for motif in args.parquet for p in (sorted(Path().glob(motif)) if "*" in motif else [Path(motif)])]
     emprises = [tuple(float(v) for v in e.split(",")) for e in args.emprise]
@@ -485,7 +489,7 @@ def main():
     for t, g in groupe.items():
         groupes.setdefault(g, set()).add(t)
     print(f"{len(tuiles)} tuiles en {len(groupes)} groupe(s) de tuiles contiguës")
-    vers_l93 = Transformer.from_crs(4326, 2154, always_xy=True)
+    vers_l93 = Transformer.from_crs(4326, EPSG, always_xy=True)   # « l93 » : projection métrique du territoire
     lt, ht = DLON * CELLULES_TUILE, DLAT * CELLULES_TUILE
     boites = [(LON0 + tx * lt, LAT0 - (ty + 1) * ht, LON0 + (tx + 1) * lt, LAT0 - ty * ht) for tx, ty in tuiles]
 
@@ -542,7 +546,7 @@ def main():
         "version": 1, "genere": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "sources": [Path(p).name for p in parquets], "terre": TERRE_ZIP.name,
         "collectivites": bool(args.reseau),        # réseau CCIO + CCBM intégré sur Marennes-Oléron
-        "grille": {"lon0": LON0, "lat0": LAT0, "dlon": DLON, "dlat": DLAT, "cellulesTuile": CELLULES_TUILE},
+        "grille": {"code": args.grille, "lon0": LON0, "lat0": LAT0, "dlon": DLON, "dlat": DLAT, "cellulesTuile": CELLULES_TUILE},
         "tuiles": index,
     }, ensure_ascii=False), "utf-8")
     fichier_prog.unlink()                                        # terminé : plus rien à reprendre

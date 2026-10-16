@@ -28,8 +28,20 @@ Contenu (après gzip, que le navigateur défait avec DecompressionStream) :
 """
 import gzip
 
-LON0, LAT0 = -5.5, 51.5          # coin nord-ouest de la grille (couvre la France métropolitaine)
+# Une grille par territoire (16/10/2026) : coin nord-ouest (lon0, lat0), DLON ≈ 100 m à la latitude du territoire
+# (100 / (111 320 · cos φ)), EPSG métrique pour les aires et le masque terre. DLAT = 0,0009 partout.
+# La page lit la grille dans tuiles.json : rien à recopier dans coeur.js.
+TERRITOIRES = {
+    "fr":  {"nom": "France métropolitaine", "lon0": -5.5,  "lat0": 51.5,  "dlon": 0.00125, "epsg": 2154},
+    "971": {"nom": "Guadeloupe",            "lon0": -61.9, "lat0": 16.6,  "dlon": 0.00093, "epsg": 5490},
+    "972": {"nom": "Martinique",            "lon0": -61.3, "lat0": 14.9,  "dlon": 0.00093, "epsg": 5490},
+    "973": {"nom": "Guyane",                "lon0": -54.7, "lat0": 6.0,   "dlon": 0.00091, "epsg": 2972},
+    "974": {"nom": "La Réunion",            "lon0": 55.1,  "lat0": -20.8, "dlon": 0.00096, "epsg": 2975},
+    "976": {"nom": "Mayotte",               "lon0": 44.9,  "lat0": -12.5, "dlon": 0.00092, "epsg": 4471},
+}
+LON0, LAT0 = -5.5, 51.5          # grille courante (choisir() la change) ; par défaut la métropole
 DLON, DLAT = 0.00125, 0.0009     # ≈ 97 × 100 m vers 45° N
+EPSG = 2154
 CELLULES_TUILE = 100             # tuile ≈ 10 km de côté
 MAGIQUE = b"PVT1"
 VERSION = 1
@@ -99,6 +111,14 @@ def encoder_tuile(t):
             _varint(min(DIST_MAX, round(d / PAS_DIST_M)), out)
     # mtime=0 : même entrée → mêmes octets (dépôt git stable entre deux générations)
     return gzip.compress(bytes(out), compresslevel=9, mtime=0)
+
+
+def choisir(code):
+    """Rend courante la grille du territoire `code` (clé de TERRITOIRES) et renvoie (LON0, LAT0, DLON, DLAT, EPSG)."""
+    global LON0, LAT0, DLON, EPSG
+    g = TERRITOIRES[code]
+    LON0, LAT0, DLON, EPSG = g["lon0"], g["lat0"], g["dlon"], g["epsg"]
+    return LON0, LAT0, DLON, DLAT, EPSG
 
 
 def tuile_de(lon, lat):
