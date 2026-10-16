@@ -648,10 +648,16 @@ document.getElementById("replier").addEventListener("click", e => {
     $("#note-couverture").textContent = `Part des cellules de 100 m ${TERRITOIRE === "oleron" ? "de l'île" : "des 14 communes"} atteintes.`;
   }
 
-  const chargeur = new ChargeurTuiles({ index, lire: (tx, ty) => fetch(`${DOSSIER}${tx}_${ty}.bin`).then(r => {
-    if (!r.ok) throw new Error(`tuile ${tx}_${ty} : ${r.status}`);
-    return r.arrayBuffer();
-  }) });
+  // Taille de la fenêtre (essai du 16/10/2026) : ?fenetre=7 charge 7 × 7 tuiles (~35 km autour du départ) au lieu
+  // de 5 × 5 (~25 km), pour ne plus couper la zone d'une heure dans les réseaux denses (Paris). Cache : la
+  // fenêtre et sa couronne de préchargement, plus une marge pour revenir en arrière sans relire
+  const FENETRE = new URLSearchParams(location.search).get("fenetre") === "7" ? 7 : 5;
+  const RAYON = (FENETRE - 1) / 2;
+  const chargeur = new ChargeurTuiles({ index, rayon: RAYON, capacite: Math.max(60, (2 * RAYON + 3) ** 2 + 20),
+    lire: (tx, ty) => fetch(`${DOSSIER}${tx}_${ty}.bin`).then(r => {
+      if (!r.ok) throw new Error(`tuile ${tx}_${ty} : ${r.status}`);
+      return r.arrayBuffer();
+    }) });
 
   // Point dans la zone (département, ou territoire demandé ; Polygon ou MultiPolygon, règle pair-impair)
   const anneaux = (zone.type === "Polygon" ? [zone.coordinates] : zone.coordinates).flat();
@@ -664,7 +670,7 @@ document.getElementById("replier").addEventListener("click", e => {
     return dedans;
   }
 
-  // Fenêtre courante (5 × 5 tuiles recollées) et tout ce qui en dépend
+  // Fenêtre courante (5 × 5 tuiles recollées, 7 × 7 avec ?fenetre=7) et tout ce qui en dépend
   const vue = { P: null, G: null, g: null, centre: null, partielle: false };
   const etat = { mode: "tout", symbo: "vitesse", cible: "depart", depart: null, arrivee: null, acc: null, res: null, minutes: null };
 
