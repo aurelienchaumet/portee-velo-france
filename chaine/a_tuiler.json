@@ -1,5 +1,5 @@
 {
- "_note": "Tuilages à (re)faire par GitHub Actions (.github/workflows/tuiler.yml) : modifier ce fichier et pousser relance le calcul des seuls tuilages listés ; les tuiles reviennent en commit sur la branche. regions = extraits Geofabrik (europe/france/<region>-latest.osm.pbf). Déjà faits (16/10/2026) : 17 (grille fr, marge 25 km, poitou-charentes + aquitaine + pays-de-la-loire, sortie tuiles/fr, remplacé par la métropole) ; essai Bretagne d'un bloc et par bandes de 3 (comparaison sous 0,1 %) ; 971, 973, 974, 976 (marge 2 km, extrait du même nom : guadeloupe, guyane, reunion, mayotte). 972 relancé le même jour (départ). Un tuilage \"essai\": true n'est pas commité (mesures de RAM et de durée dans le résumé du run) ; \"emprises\" remplace departement/marge_km. \"bande_lignes\" : tuilage par bandes (phase 4) ; \"comparaisons\" : [A, B, \"lon,lat\"…] compare deux tuilages (test/comparer_tuilages.js). \"contour\" : tuiles qui touchent ce GeoJSON (chemin depuis chaine/) ; \"publication\": \"release\" : tuiles dans la release tuiles-<nom> au lieu du dépôt. 16/10 soir : tout re-tuilé pour garder les îles sans pont (ILE_MIN_M, tuiler.py).",
+ "_note": "Tuilages à (re)faire par GitHub Actions (.github/workflows/tuiler.yml) : modifier ce fichier et pousser relance le calcul des seuls tuilages listés ; les tuiles reviennent en commit sur la branche. regions = extraits Geofabrik (europe/france/<region>-latest.osm.pbf). Déjà faits (16/10/2026) : 17 (grille fr, marge 25 km, poitou-charentes + aquitaine + pays-de-la-loire, sortie tuiles/fr, remplacé par la métropole) ; essai Bretagne d'un bloc et par bandes de 3 (comparaison sous 0,1 %) ; 971, 973, 974, 976 (marge 2 km, extrait du même nom : guadeloupe, guyane, reunion, mayotte). 972 relancé le même jour (départ). Un tuilage \"essai\": true n'est pas commité (mesures de RAM et de durée dans le résumé du run) ; \"emprises\" remplace departement/marge_km. \"bande_lignes\" : tuilage par bandes (phase 4) ; \"comparaisons\" : [A, B, \"lon,lat\"…] compare deux tuilages (test/comparer_tuilages.js). \"contour\" : tuiles qui touchent ce GeoJSON (chemin depuis chaine/) ; \"publication\": \"release\" : tuiles dans la release tuiles-<nom> au lieu du dépôt. 16/10 soir : tout re-tuilé pour garder les îles sans pont (ILE_MIN_M, tuiler.py). \"croisements\": true : crx/ (croisements.py) après le tuilage. Re-tuilage du 16/10 vers 23 h : départementales (bit 15, ref OSM) + croisements. 16/10 nuit : re-tuilage complet avec bit RD (ref OSM), croisements par blocs (croisements.py) et équipements/habitants par blocs (comptages_blocs.py, \"acces\": true).",
  "tuilages": [
   {
    "nom": "971",
@@ -9,7 +9,9 @@
    "sortie": "tuiles/971",
    "regions": [
     "guadeloupe"
-   ]
+   ],
+   "croisements": true,
+   "acces": true
   },
   {
    "nom": "972",
@@ -19,7 +21,9 @@
    "sortie": "tuiles/972",
    "regions": [
     "martinique"
-   ]
+   ],
+   "croisements": true,
+   "acces": true
   },
   {
    "nom": "973",
@@ -29,7 +33,9 @@
    "sortie": "tuiles/973",
    "regions": [
     "guyane"
-   ]
+   ],
+   "croisements": true,
+   "acces": true
   },
   {
    "nom": "974",
@@ -39,7 +45,9 @@
    "sortie": "tuiles/974",
    "regions": [
     "reunion"
-   ]
+   ],
+   "croisements": true,
+   "acces": true
   },
   {
    "nom": "976",
@@ -49,7 +57,9 @@
    "sortie": "tuiles/976",
    "regions": [
     "mayotte"
-   ]
+   ],
+   "croisements": true,
+   "acces": true
   },
   {
    "nom": "fr",
@@ -82,7 +92,9 @@
     "poitou-charentes",
     "provence-alpes-cote-d-azur",
     "rhone-alpes"
-   ]
+   ],
+   "croisements": true,
+   "acces": true
   }
  ]
 }
