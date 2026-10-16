@@ -141,7 +141,33 @@ Plus tard : déployer depuis `main` plutôt que `france-entiere` (après fusion)
   fluide ; la zone d'une heure était coupée en 5 × 5 pendant le survol, fenêtre tolérée à ±1 tuile du départ).
   `?fenetre=5` garde l'ancienne.
 
-Reste (phase 4) : contrôle visuel du site en ligne par Aurélien ; choroplèthe des 101 chefs-lieux
-(`france.html`, anciennes tuiles à la racine de `tuiles/`) à refaire sur les tuiles nationales.
+- **Classement** (`classement.html`, fait la nuit du 16/10) : choroplèthe des 96 départements + 5 DROM en
+  encarts, d'après `tuiles/classement.json` (`node chaine/scores.js tuiles`, lancé par `deployer.yml` sur les
+  tuiles nationales). Départ des DROM = celui de `contour.json` (Guadeloupe : Les Abymes, commune la plus
+  peuplée, et non Basse-Terre). `france.html` et les anciennes tuiles à la racine de `tuiles/` laissés en place
+  (interdit d'y toucher sans accord).
 
-Phases suivantes : voir la spec (§7).
+Reste (phase 4) : contrôle visuel du site en ligne par Aurélien.
+
+## Phase 5 (nuit du 16/10) : départementales et croisements
+
+- **Bit RD réellement posé** : `marquer_rd.py` n'était jamais lancé, « Sans départementales » n'excluait rien.
+  Désormais `tuiler.py` marque RD toute voie de classe 2 à 5 ou 7 dont la `ref` OSM commence par D/RD (`REF_RD`).
+  Textes de la page : « numéro D… dans OpenStreetMap ». Option prudente : **BD TOPO pas encore branchée**
+  (appariement IGN à faire ; la `ref` OSM couvre déjà l'essentiel du réseau départemental).
+- **Croisements par blocs** : `chaine/croisements.py` (blocs de 4 × 4 tuiles + couronne d'une tuile), sortie
+  `tuiles/<zone>/crx/index.json` + `crx/<bx>_<by>.json` ; même méthode que `intersections.py` (refactoré en
+  fonctions). Sur la Réunion : identique au calcul d'un bloc (1 311 croisements). La page charge les blocs de sa
+  fenêtre (`chargerCrx`, repli sur `intersections.json`).
+
+## Phase 6 (nuit du 16/10) : équipements et habitants
+
+- Sources sondées depuis Actions (`sonder.yml`) : BPE 2025 en parquet (insee.fr, fichier 8217525) et Filosofi
+  2021 carroyé 200 m métropole en parquet (data.gouv.fr). **Pas de Filosofi pour les DROM** : la page dit « Pas
+  de données d'habitants pour ce territoire ».
+- `chaine/comptages_blocs.py` : `traiter_bpe` / `traiter_filosofi` de `comptages.py`, puis découpage par blocs
+  de 4 × 4 tuiles → `tuiles/<zone>/acces/index.json` + `acces/<bx>_<by>.json` ; carreau Filosofi réparti sur
+  4 × 4 sous-points (et non 10 × 10 : 230 M points en métropole). Page : `chargerAccesBlocs`, blocs de la fenêtre.
+- Étape « Équipements et habitants » de `tuiler.yml` (`"acces": true`), `continue-on-error` comme les croisements.
+
+Phases suivantes : voir la spec (§7) — diagnostics par EPCI et par commune, BD TOPO pour les RD.
