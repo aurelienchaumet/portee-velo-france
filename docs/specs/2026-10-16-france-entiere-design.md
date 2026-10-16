@@ -110,7 +110,7 @@ Dans les deux cas, `tuiler.py` reprend où il s'était arrêté (`progression.js
    Tuilage de la Réunion (la plus petite avec un relief marqué) et contrôle visuel.
 2. **Les 5 DROM** : extraction, tuilage, contours, mairies, sélecteur dans la page.
 3. **Hébergement Cloudflare Workers** : base d'URL configurable, déploiement du site + tuiles du 17 et des DROM.
-4. **Métropole** : tuilage par région (Actions ou serveur), envoi sur R2, `tuiles.json` national,
+4. **Métropole** : tuilage par région (Actions ou serveur), déploiement sur Cloudflare, `tuiles.json` national,
    choroplèthe des 101 chefs-lieux.
 5. **RD et croisements** : BD TOPO dans `marquer_rd.py` et `intersections.py`, partout.
 6. **Plus tard** : accessibilité nationale (BPE + Filosofi), diagnostics par EPCI, COM (Saint-Pierre-et-Miquelon,
