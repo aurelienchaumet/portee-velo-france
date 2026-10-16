@@ -63,11 +63,18 @@ doit tomber à moins de `APPARIEMENT_M` d'un segment de RD.
 Estimation : 22 Mo pour le 17 (≈ 7 000 km² + marge), donc ≈ 2 à 3 Go pour la France, au-dessus de la limite
 d'un site GitHub Pages (1 Go).
 
-**Choix** : Cloudflare R2, avec un seau public et la même arborescence `tuiles/<code>/…` (un fichier par tuile,
-pas de PMTiles : le chargeur actuel fonctionne tel quel, seule la base d'URL change). Le site (HTML, JS,
-`tuiles.json`) reste sur GitHub Pages. CORS ouvert en lecture pour `aurelienchaumet.github.io`. Envoi avec
-`rclone sync` (en reprise). Gratuit jusqu'à 10 Go stockés, sortie de données gratuite. Il faut un compte
-Cloudflare, qui demande un moyen de paiement même pour l'offre gratuite : c'est à Aurélien de le créer.
+**Choix (16/10/2026)** : tout le site sur **Cloudflare Workers, en ressources statiques seules** (offre gratuite,
+sans carte bancaire). Pas de R2 : son activation demande une carte, et Aurélien refuse tout risque de
+facturation. Sans moyen de paiement enregistré, un dépassement bloque le service mais ne peut rien coûter.
+- Requêtes vers les fichiers statiques gratuites et illimitées ; 20 000 fichiers au plus par version, 25 Mio
+  par fichier. Une tuile par fichier (≈ 7 000 pour la France), le chargeur ne change pas.
+- Déploiement : `wrangler deploy` (depuis GitHub Actions, avec un jeton d'API Cloudflare en secret).
+- GitHub Pages peut rester en vitrine (redirection) ou disparaître.
+- Plafond : au-delà de 20 000 fichiers (35 000 communes, COM), regrouper plusieurs tuiles par fichier.
+
+Écartés : R2 (carte bancaire), Supabase (gratuit = 1 Go stocké et 5 Go de sortie par mois, trop juste),
+assets de GitHub Releases (pas de CORS). Plan B sans aucun tiers : un dépôt GitHub Pages par groupe de régions
+(< 1 Go chacun).
 
 ## 5. Où calculer
 
@@ -102,7 +109,7 @@ Dans les deux cas, `tuiler.py` reprend où il s'était arrêté (`progression.js
 1. **Grille par territoire** : table `TERRITOIRES`, chemins `tuiles/<code>/`, test d'accord Python ↔ JS.
    Tuilage de la Réunion (la plus petite avec un relief marqué) et contrôle visuel.
 2. **Les 5 DROM** : extraction, tuilage, contours, mairies, sélecteur dans la page.
-3. **Hébergement R2** : base d'URL configurable, envoi des tuiles du 17 et des DROM, test depuis Pages.
+3. **Hébergement Cloudflare Workers** : base d'URL configurable, déploiement du site + tuiles du 17 et des DROM.
 4. **Métropole** : tuilage par région (Actions ou serveur), envoi sur R2, `tuiles.json` national,
    choroplèthe des 101 chefs-lieux.
 5. **RD et croisements** : BD TOPO dans `marquer_rd.py` et `intersections.py`, partout.
@@ -115,7 +122,7 @@ Chaque phase se termine par `node --test test/*.test.js` au vert et la non-régr
 ## 8. Réponses d'Aurélien (16/10/2026)
 
 1. Calcul lourd : **GitHub Actions**, le serveur de Marennes en secours seulement.
-2. Compte Cloudflare créé. Reste à activer R2 (à vérifier : moyen de paiement demandé ou non à l'activation).
+2. Hébergement : Cloudflare Workers en statique, sans carte (voir §4).
 3. **Le dépôt du SIT fait foi** pour le code commun. Ce dépôt en reçoit des copies, avec la même disposition :
    racine = racine du site sit-pmo (`index.html`, `coeur.js`, `build_graph_velo.py`), `chaine/` = `departement17/`.
    Les chemins relatifs (`../../coeur.js`, `ICI.parent`) restent donc valables tels quels.
