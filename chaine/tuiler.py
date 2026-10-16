@@ -24,6 +24,7 @@ Usage (depuis departement17/) :
 import argparse
 import json
 import math
+import pickle
 import sys
 import time
 from datetime import datetime
@@ -386,91 +387,226 @@ def ecrire_controle(chemin, n, a, b, l_dm, attr):
                                   "empreinte": hashlib.sha256("\n".join(lignes).encode()).hexdigest()}), "utf-8")
 
 
-def traiter_groupe(con, source, tuiles, base0, masque, vers_l93, sortie, controle, coll=None):
+def cle_noeud(xy):
+    """Clé entière d'un nœud (lon, lat en degrés) : coordonnées au 1e-7 degré, comme construire_graphe()."""
+    q = np.round(np.asarray(xy) * 1e7).astype(np.int64)
+    return (q[:, 0] << 32) ^ (q[:, 1] & 0xFFFFFFFF)
+
+
+def garder_composantes_bande(nb, a, b, halo_noeud):
+    """Masque des arêtes à garder dans une bande : la plus grande composante, plus toute composante qui touche le
+    halo (elle peut rejoindre le réseau principal hors de la bande : la couper créerait un trou au raccord)."""
+    m = coo_matrix((np.ones(len(a)), (a, b)), shape=(nb, nb))
+    _, comp = connected_components(m, directed=False)
+    utilises = np.zeros(nb, bool)
+    utilises[a] = utilises[b] = True
+    valeurs, effectifs = np.unique(comp[utilises], return_counts=True)
+    garder = {valeurs[np.argmax(effectifs)]} | set(np.unique(comp[utilises & halo_noeud]).tolist())
+    print(f"  bande : {len(valeurs)} composantes, {len(garder)} gardées (principale : {effectifs.max() / effectifs.sum():.1%})")
+    ok = np.isin(comp, list(garder))
+    return ok[a] & ok[b]
+
+
+def decouper_en_unites(ordre, bande_lignes):
+    """Unités de travail : (tuiles, halo, faits) par groupe d'un bloc, ou par bande de bande_lignes lignes
+    (halo = lignes voisines, faits = dernière ligne de la bande précédente)."""
+    unites = []
+    for tg in ordre:
+        lignes_g = sorted({t[1] for t in tg})
+        if not bande_lignes or len(lignes_g) <= bande_lignes:
+            unites.append((set(tg), set(), set()))
+            continue
+        for i in range(0, len(lignes_g), bande_lignes):
+            r0, r1 = lignes_g[i], lignes_g[min(i + bande_lignes, len(lignes_g)) - 1]
+            unites.append(({t for t in tg if r0 <= t[1] <= r1}, {t for t in tg if t[1] in (r0 - 1, r1 + 1)},
+                           {t for t in tg if t[1] == r0 - 1}))
+    return unites
+
+
+def traiter_groupe(con, source, tuiles, base0, masque, vers_l93, sortie, controle, coll=None,
+                   halo=(), faits=(), connus=None, attente=None):
     """Graphe, numérotation (à partir de base0) et écriture des tuiles d'un groupe de tuiles contiguës.
-    Renvoie (lignes de l'index, nombre de nœuds, octets écrits)."""
+    Renvoie (lignes de l'index, nombre de nœuds, octets écrits, nœuds de bord, tuiles en attente).
+
+    Bandes (métropole, phase 4 : la France d'un bloc demanderait ~50 Go) : `tuiles` = une bande de lignes du
+    groupe, `halo` = lignes voisines lues en plus, `faits` = tuiles des bandes déjà écrites, `connus` = leurs
+    nœuds de bord (cles, gids, lon, lat, amen), `attente` = tuiles de leur dernière ligne, écrites ici une fois
+    leurs cellules complétées par les nœuds de cette bande. Une arête entre la bande et une tuile faite appartient à la bande (retournée au besoin, sens
+    1 ↔ 2) et vise le nœud connu de mêmes coordonnées ; une arête vers une tuile pas encore faite est laissée à
+    la bande suivante. Sans halo : traitement d'un seul bloc, comme avant.
+    """
+    tuiles, halo, faits = set(tuiles), set(halo) - set(tuiles), set(faits)
+    lues = tuiles | halo
     lt, ht = DLON * CELLULES_TUILE, DLAT * CELLULES_TUILE
-    # Voies lues sur toute l'étendue des tuiles (sinon le bord des tuiles reste sans réseau)
-    boites = [(LON0 + tx * lt, LAT0 - (ty + 1) * ht, LON0 + (tx + 1) * lt, LAT0 - ty * ht) for tx, ty in tuiles]
-    voies = lire_voies(con, source, boites)
-    masque.charger_eaux(con, source, boites)
+    boite = lambda tx, ty: (LON0 + tx * lt, LAT0 - (ty + 1) * ht, LON0 + (tx + 1) * lt, LAT0 - ty * ht)
+    # Voies lues sur toute l'étendue des tuiles (sinon le bord des tuiles reste sans réseau), halo compris
+    voies = lire_voies(con, source, [boite(*t) for t in lues])
+    masque.charger_eaux(con, source, [boite(*t) for t in tuiles])
     ordre_tuile = {t: k for k, t in enumerate(sorted(tuiles, key=lambda t: (t[1], t[0])))}
     if voies:
         noeuds, a, b, attr = construire_graphe(voies)
         if coll:
             noeuds, a, b, attr = integrer_collectivites(noeuds, a, b, attr, coll, vers_l93)
         tx, ty = tuile_xy(noeuds[:, 0], noeuds[:, 1])
-        dans = np.array([(x, y) in tuiles for x, y in zip(tx.tolist(), ty.tolist())])
+        couples = list(zip(tx.tolist(), ty.tolist()))
+        dans = np.array([t in lues for t in couples], bool)
+        propre = np.array([t in tuiles for t in couples], bool)
         garde = dans[a] & dans[b]
         a, b, attr = a[garde], b[garde], attr[garde]
     if not voies or len(a) == 0:
         noeuds, a, b, attr = np.zeros((0, 2)), np.zeros(0, np.int64), np.zeros(0, np.int64), np.zeros((0, 4), np.int64)
         tx = ty = np.zeros(0, np.int64)
-    else:
+        propre = np.zeros(0, bool)
+    elif not halo:
         # Plus grande composante connexe du groupe (comme build_graph_velo.py)
         garde = garder_composantes(len(noeuds), a, b, np.zeros(len(noeuds), np.int64))
         a, b, attr = a[garde], b[garde], attr[garde]
+    else:
+        garde = garder_composantes_bande(len(noeuds), a, b, dans & ~propre)
+        a, b, attr = a[garde], b[garde], attr[garde]
+
+    # Nœuds du réseau aménagé (pistes, bandes…), marqués avant d'écarter les arêtes laissées à la bande suivante
+    amen_g = np.zeros(len(noeuds), bool)
+    est_amen = np.isin(attr[:, 0], CLASSES_AMEN) if len(a) else np.zeros(0, bool)
+    amen_g[a[est_amen]] = amen_g[b[est_amen]] = True
+
+    # Arêtes de la bande : a dans la bande ; b dans la bande ou dans une tuile déjà faite (nœud connu)
+    externe = np.zeros(len(a), bool)                        # b dans une tuile déjà faite
+    manques = 0
+    if halo and len(a):
+        fait = np.array([t in faits for t in couples], bool)
+        inv = ~propre[a] & propre[b]                       # arête vue depuis l'autre bout : on la retourne
+        a[inv], b[inv] = b[inv].copy(), a[inv].copy()
+        s = attr[inv, 2]
+        attr[inv, 2] = np.where(s == 1, 2, np.where(s == 2, 1, s))
+        # Nœuds de la bande : extrémités de toutes ses arêtes, y compris celles laissées à la bande suivante
+        # (qui y retrouvera ces nœuds par leurs coordonnées)
+        ext = np.concatenate([a[propre[a]], b[propre[b]]])
+        externe = propre[a] & fait[b]
+        garde = propre[a] & (propre[b] | fait[b])
+        a, b, attr, externe = a[garde], b[garde], attr[garde], externe[garde]
+        gid_ext = np.full(len(a), -1, np.int64)
+        if externe.any():
+            cles = cle_noeud(noeuds[b[externe]])
+            par_cle = dict(zip(connus["cles"].tolist(), connus["gids"].tolist())) if connus else {}
+            gid_ext[externe] = [par_cle.get(k, -1) for k in cles.tolist()]
+            perdu = externe & (gid_ext < 0)
+            manques = int(perdu.sum())
+            a, b, attr, externe, gid_ext = a[~perdu], b[~perdu], attr[~perdu], externe[~perdu], gid_ext[~perdu]
+        utilises = np.unique(np.concatenate([ext, a]))
+    else:
+        utilises = np.unique(np.concatenate([a, b]))
+        gid_ext = np.full(len(a), -1, np.int64)
+    if manques:
+        print(f"  raccords : {manques} arêtes sans nœud correspondant dans la bande précédente, écartées")
+
+    # Longueurs avant renumérotation (b peut appartenir à une tuile déjà écrite)
+    longueur = np.hypot((noeuds[a, 0] - noeuds[b, 0]) * np.cos(np.radians(noeuds[a, 1])),
+                        noeuds[a, 1] - noeuds[b, 1]) * M_PAR_DEG if len(a) else np.zeros(0)
 
     # Numérotation : tuile par tuile (ordre ty, tx), puis carré de 1 km, puis longitude ; à partir de base0
-    utilises = np.unique(np.concatenate([a, b]))
     lon, lat = noeuds[utilises, 0], noeuds[utilises, 1]
     k_tuile = np.array([ordre_tuile[(x, y)] for x, y in zip(tx[utilises].tolist(), ty[utilises].tolist())], dtype=np.int64)
     carre_y = np.floor((LAT0 - lat) / CARRE_TRI_DEG[1]).astype(np.int64)
     carre_x = np.floor((lon - LON0) / CARRE_TRI_DEG[0]).astype(np.int64)
     tri = np.lexsort((lon, carre_x, carre_y, k_tuile))
-    gid = np.empty(len(noeuds), np.int64)
+    gid = np.full(len(noeuds), -1, np.int64)
     gid[utilises[tri]] = np.arange(len(utilises))
-    a, b = gid[a], gid[b]                                   # indices locaux au groupe ; + base0 à l'écriture
+    a = gid[a]                                              # indices locaux au groupe ; + base0 à l'écriture
+    b_loc = np.where(externe, -1, gid[b])                   # -1 : nœud d'une tuile déjà écrite
+    b_abs = np.where(externe, gid_ext, b_loc + base0)       # identifiant global
     lon, lat, k_tuile = lon[tri], lat[tri], k_tuile[tri]
-    longueur = np.hypot((lon[a] - lon[b]) * np.cos(np.radians(lat[a])), lat[a] - lat[b]) * M_PAR_DEG
     l_dm = np.maximum(1, np.round(longueur * 10)).astype(np.int64)
     classe, vit, sens = attr[:, 0], attr[:, 1], attr[:, 2]
     attr_code = classe | (sens << 3) | (vit << 5)
     print(f"  graphe : {len(lon)} nœuds, {len(a)} arêtes, {longueur.sum() / 1000:.0f} km")
     if controle is not None:
-        controle.append((len(lon), a + base0, b + base0, l_dm, attr_code))
+        controle.append((len(lon), a + base0, b_abs, l_dm, attr_code))
 
+    # Plus proches nœuds des cellules : ceux de la bande, plus les nœuds de bord de la bande précédente (connus,
+    # identifiants déjà donnés) ; ids_* = identifiants globaux
     x, y = vers_l93.transform(lon, lat)
-    arbre_tout = cKDTree(np.column_stack([x, y])) if len(lon) else None
-    amen = np.unique(np.concatenate([a[np.isin(classe, CLASSES_AMEN)], b[np.isin(classe, CLASSES_AMEN)]]))
-    arbre_amen = cKDTree(np.column_stack([x[amen], y[amen]])) if len(amen) else None
+    amen_noeud = amen_g[utilises[tri]]
+    pts, ids = np.column_stack([x, y]), np.arange(len(lon)) + base0
+    if connus:
+        cx_c, cy_c = vers_l93.transform(connus["lon"], connus["lat"])
+        pts_c = np.column_stack([cx_c, cy_c])
+        pts_t, ids_t = np.vstack([pts, pts_c]), np.concatenate([ids, connus["gids"]])
+        am_t = np.concatenate([amen_noeud, connus["amen"]])
+    else:
+        pts_t, ids_t, am_t = pts, ids, amen_noeud
+    arbre_tout = (cKDTree(pts_t), ids_t) if len(ids_t) else None
+    arbre_amen = (cKDTree(pts_t[am_t]), ids_t[am_t]) if am_t.any() else None
+    # Tuiles de la dernière ligne de la bande précédente, en attente : leurs cellules peuvent avoir leur plus
+    # proche nœud dans cette bande-ci (on garde le plus proche des deux)
+    octets_total = 0
+    for t in (attente or []):
+        for cle, arbre_ids in (("tout", arbre_tout), ("amen", arbre_amen)):
+            d, p_ = proches(arbre_ids, t["pts"])
+            mieux = d < t["d_" + cle]
+            t["d_" + cle], t["p_" + cle] = np.where(mieux, d, t["d_" + cle]), np.where(mieux, p_, t["p_" + cle])
+        octets_total += ecrire_tuile(sortie, t)
     debut_tuile = np.searchsorted(k_tuile, np.arange(len(ordre_tuile) + 1))
-    index, octets_total = [], 0
+    index, en_attente = [], []
+    derniere = max(t[1] for t in tuiles)
+    differer = bool(halo) and any(t[1] == derniere + 1 for t in halo)   # une bande suit
     ii, jj = np.meshgrid(np.arange(CELLULES_TUILE), np.arange(CELLULES_TUILE))
     for (tx0, ty0), k in sorted(ordre_tuile.items(), key=lambda kv: kv[1]):
         deb, fin = int(debut_tuile[k]), int(debut_tuile[k + 1])
         possedees = (a >= deb) & (a < fin)                   # arête rattachée à la tuile de son nœud a
         clon = (LON0 + (tx0 * CELLULES_TUILE + ii + 0.5) * DLON).ravel()
         clat = (LAT0 - (ty0 * CELLULES_TUILE + jj + 0.5) * DLAT).ravel()
-        terre = masque.cellules(clon, clat)
         cx, cy = vers_l93.transform(clon, clat)
-        aucun = (np.full(len(cx), np.inf), np.full(len(cx), -1))
-        d_tout, p_tout = arbre_tout.query(np.column_stack([cx, cy])) if arbre_tout is not None else aucun
-        if arbre_amen is not None:
-            d_amen, p_amen = arbre_amen.query(np.column_stack([cx, cy]))
-            p_amen = amen[p_amen]
-        else:
-            d_amen, p_amen = aucun
-        # Cellules en mer : aucun nœud (allège la tuile ; tempsGrille les ignore de toute façon), sauf à moins
-        # de MER_PRO_MAX_M d'un nœud : sinon un pont ou une jetée n'est le nœud d'aucune cellule et
-        # accrocher() ne peut pas s'y raccrocher (curseur sur le pont d'Oléron accroché à la côte à 800 m)
-        p_tout = np.where((terre | (d_tout <= MER_PRO_MAX_M)) & (p_tout >= 0), p_tout + base0, -1)
-        p_amen = np.where((terre | (d_amen <= MER_PRO_MAX_M)) & (p_amen >= 0), p_amen + base0, -1)
         t = {
             "tx": tx0, "ty": ty0, "base": base0 + deb,
             "lon": np.round(lon[deb:fin] * 1e5).astype(np.int64).tolist(),
             "lat": np.round(lat[deb:fin] * 1e5).astype(np.int64).tolist(),
-            "a": (a[possedees] - deb).tolist(), "b": (b[possedees] + base0).tolist(),
+            "a": (a[possedees] - deb).tolist(), "b": b_abs[possedees].tolist(),
             "l": l_dm[possedees].tolist(), "attr": attr_code[possedees].tolist(),
-            "ncx": CELLULES_TUILE, "ncy": CELLULES_TUILE, "terre": terre.astype(int).tolist(),
-            "pro_tout": p_tout.tolist(), "pro_amen": p_amen.tolist(),
-            "dist_tout": np.minimum(d_tout, 1e6).tolist(), "dist_amen": np.minimum(d_amen, 1e6).tolist(),
+            "ncx": CELLULES_TUILE, "ncy": CELLULES_TUILE, "terre": masque.cellules(clon, clat),
+            "pts": np.column_stack([cx, cy]),
         }
-        octets = encoder_tuile(t)
-        (sortie / f"{tx0}_{ty0}.bin").write_bytes(octets)
-        octets_total += len(octets)
+        t["d_tout"], t["p_tout"] = proches(arbre_tout, t["pts"])
+        t["d_amen"], t["p_amen"] = proches(arbre_amen, t["pts"])
+        if differer and ty0 == derniere:
+            en_attente.append(t)
+        else:
+            octets_total += ecrire_tuile(sortie, t)
         index.append([tx0, ty0, base0 + deb, fin - deb])
-    return index, len(lon), octets_total
+    # Nœuds de bord pour la bande suivante : ceux de la dernière ligne de la bande (une arête de moins de 2 km
+    # ne relie que des tuiles voisines)
+    bord = None
+    if differer:
+        sel = np.array([t[1] == derniere for t in sorted(tuiles, key=lambda t: (t[1], t[0]))], bool)[k_tuile] \
+            if len(lon) else np.zeros(0, bool)
+        idx = np.nonzero(sel)[0]
+        bord = {"cles": cle_noeud(np.column_stack([lon[idx], lat[idx]])), "gids": idx + base0,
+                "lon": lon[idx], "lat": lat[idx], "amen": amen_noeud[idx]}
+    return index, len(lon), octets_total, bord, en_attente
+
+
+def proches(arbre_ids, pts):
+    """Distance (m) et identifiant global du plus proche nœud de chaque point ; inf et -1 sans nœud."""
+    if arbre_ids is None:
+        return np.full(len(pts), np.inf), np.full(len(pts), -1, np.int64)
+    arbre, ids = arbre_ids
+    d, i = arbre.query(pts)
+    return d, ids[i]
+
+
+def ecrire_tuile(sortie, t):
+    """Encode et écrit une tuile (cellules : plus proches nœuds déjà choisis) ; renvoie le nombre d'octets.
+    Cellules en mer : aucun nœud (allège la tuile ; tempsGrille les ignore de toute façon), sauf à moins
+    de MER_PRO_MAX_M d'un nœud : sinon un pont ou une jetée n'est le nœud d'aucune cellule et
+    accrocher() ne peut pas s'y raccrocher (curseur sur le pont d'Oléron accroché à la côte à 800 m)."""
+    terre = t["terre"]
+    p_tout = np.where((terre | (t["d_tout"] <= MER_PRO_MAX_M)) & (t["p_tout"] >= 0), t["p_tout"], -1)
+    p_amen = np.where((terre | (t["d_amen"] <= MER_PRO_MAX_M)) & (t["p_amen"] >= 0), t["p_amen"], -1)
+    octets = encoder_tuile({**t, "terre": terre.astype(int).tolist(), "pro_tout": p_tout.tolist(),
+                            "pro_amen": p_amen.tolist(), "dist_tout": np.minimum(t["d_tout"], 1e6).tolist(),
+                            "dist_amen": np.minimum(t["d_amen"], 1e6).tolist()})
+    (sortie / f"{t['tx']}_{t['ty']}.bin").write_bytes(octets)
+    return len(octets)
 
 
 def main():
@@ -491,6 +627,9 @@ def main():
     ap.add_argument("--controle", help="écrit l'empreinte du graphe complet (test de recollage sans perte)")
     ap.add_argument("--duree-max-min", type=float, default=0,
                     help="s'arrête proprement après ce temps (0 = sans limite) ; relancer la même commande reprend")
+    ap.add_argument("--bande-lignes", type=int, default=0,
+                    help="découpe chaque groupe en bandes de N lignes de tuiles traitées l'une après l'autre "
+                         "(mémoire d'une bande ; 0 = groupe d'un bloc). Métropole : ~5")
     args = ap.parse_args()
     global LON0, LAT0, DLON, DLAT, EPSG             # grille du territoire, lue par toutes les fonctions du module
     LON0, LAT0, DLON, DLAT, EPSG = choisir(args.grille)
@@ -526,7 +665,7 @@ def main():
     # Plusieurs fichiers ou plusieurs groupes : une seule lecture des sources vers un fichier intermédiaire
     # Reprise : la progression (groupes faits, index, numéro de nœud suivant) est enregistrée après chaque
     # groupe ; une relance avec les mêmes arguments repart du groupe suivant. Signature = arguments.
-    signature = json.dumps([sorted(parquets), sorted(map(list, tuiles)), args.reseau])
+    signature = json.dumps([sorted(parquets), sorted(map(list, tuiles)), args.reseau, args.bande_lignes])
     fichier_prog = sortie / "progression.json"
     prog = json.loads(fichier_prog.read_text("utf-8")) if fichier_prog.exists() else None
     if not prog or prog["signature"] != signature:
@@ -555,19 +694,32 @@ def main():
         coll = (terr_l93, args.reseau)
         print(f"Réseau des collectivités : {args.reseau} sur {len(gj['features'])} communes")
     ordre = sorted(groupes.values(), key=lambda tg: min((t[1], t[0]) for t in tg))
-    # Groupes traités l'un après l'autre (mémoire = un seul groupe) ; numérotation continue d'un groupe à l'autre
-    for rang in range(prog["faits"], len(ordre)):
+    # Unités de travail : un groupe d'un bloc, ou ses bandes de --bande-lignes lignes (halo = lignes voisines,
+    # faits = ligne de la bande précédente, dont les nœuds de bord sont gardés dans bord.npz pour la reprise)
+    unites = decouper_en_unites(ordre, args.bande_lignes)
+    # État d'une bande à la suivante (nœuds de bord, tuiles en attente), gardé sur disque pour la reprise
+    fichier_bord = sortie / "bord.pkl"
+    connus, attente = None, []
+    if prog["faits"] and fichier_bord.exists():
+        connus, attente = pickle.loads(fichier_bord.read_bytes())
+    # Unités traitées l'une après l'autre (mémoire = une unité) ; numérotation continue de l'une à l'autre
+    for rang in range(prog["faits"], len(unites)):
         if args.duree_max_min and time.time() - t0 > args.duree_max_min * 60:
-            print(f"Arrêt après {args.duree_max_min:g} min : {rang}/{len(ordre)} groupes faits. Relancez la même commande pour continuer.")
+            print(f"Arrêt après {args.duree_max_min:g} min : {rang}/{len(unites)} unités faites. Relancez la même commande pour continuer.")
             return
-        tg = ordre[rang]
-        print(f"Groupe {rang + 1}/{len(ordre)} : {len(tg)} tuiles")
-        lignes, nb, octets = traiter_groupe(con, source, tg, prog["base"], masque, vers_l93, sortie, controle, coll)
+        tg, halo, faits = unites[rang]
+        print(f"{'Bande' if halo else 'Groupe'} {rang + 1}/{len(unites)} : {len(tg)} tuiles"
+              + (f", lignes {min(t[1] for t in tg)} à {max(t[1] for t in tg)}" if halo else ""))
+        lignes, nb, octets, connus, attente = traiter_groupe(
+            con, source, tg, prog["base"], masque, vers_l93, sortie, controle, coll, halo=halo, faits=faits,
+            connus=connus if faits else None, attente=attente if faits else None)
+        fichier_bord.write_bytes(pickle.dumps((connus, attente)))
         prog["index"] += lignes
         prog["base"] += nb
         prog["octets"] += octets
         prog["faits"] = rang + 1
         fichier_prog.write_text(json.dumps(prog), "utf-8")
+    fichier_bord.unlink(missing_ok=True)
     index, base, octets_total = prog["index"], prog["base"], prog["octets"]
     if args.controle:
         cat = lambda i: np.concatenate([c[i] for c in controle])

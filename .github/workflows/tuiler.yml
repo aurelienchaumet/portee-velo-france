@@ -23,10 +23,13 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       matrice: ${{ steps.lire.outputs.matrice }}
+      comparaisons: ${{ steps.lire.outputs.comparaisons }}
     steps:
       - uses: actions/checkout@v4
       - id: lire
-        run: echo "matrice=$(jq -c '.tuilages' chaine/a_tuiler.json)" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "matrice=$(jq -c '.tuilages' chaine/a_tuiler.json)" >> "$GITHUB_OUTPUT"
+          echo "comparaisons=$(jq -c '.comparaisons // []' chaine/a_tuiler.json)" >> "$GITHUB_OUTPUT"
 
   tuiler:
     needs: plan
@@ -78,8 +81,10 @@ jobs:
             zone=(); for e in $(jq -r '.emprises[]' <<< "$T"); do zone+=("--emprise=$e"); done   # « = » : sinon « -5.15,… » est pris pour une option
           fi
           # /usr/bin/time -v : mémoire maximale, pour extrapoler à la métropole (phase 4)
+          # Bandes de N lignes de tuiles (métropole, phase 4 : mémoire d'une bande au lieu de la France entière)
           /usr/bin/time -v -o ../mesure.txt python -I -X utf8 tuiler.py --grille "$(jq -r .grille <<< "$T")" \
-            --parquet 'cache/regions/*.parquet' "${zone[@]}" --sortie "../$(jq -r .sortie <<< "$T")"
+            --parquet 'cache/regions/*.parquet' "${zone[@]}" --sortie "../$(jq -r .sortie <<< "$T")" \
+            --bande-lignes "$(jq -r '.bande_lignes // 0' <<< "$T")"
           grep -E "Maximum resident|Elapsed" ../mesure.txt
           echo "RAM max : $(awk '/Maximum resident/ {printf "%.1f Go", $NF / 1048576}' ../mesure.txt), durée : $(awk -F': ' '/Elapsed/ {print $2}' ../mesure.txt), $(find "../$(jq -r .sortie <<< "$T")" -name '*.bin' | wc -l) tuiles, $(du -sh "../$(jq -r .sortie <<< "$T")" | cut -f1)" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
@@ -87,6 +92,27 @@ jobs:
           name: tuiles-${{ matrix.t.nom }}
           path: ${{ matrix.t.sortie }}
           retention-days: 7
+
+  # Comparaisons de deux tuilages d'une même zone (a_tuiler.json → comparaisons : [nom A, nom B, "lon,lat"…])
+  comparer:
+    needs: [plan, tuiler]
+    if: ${{ !cancelled() && needs.plan.outputs.comparaisons != '[]' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: artefacts
+      - name: Comparer
+        working-directory: chaine
+        run: |
+          code=0
+          while read -r ligne; do
+            a=$(jq -r '.[0]' <<< "$ligne"); b=$(jq -r '.[1]' <<< "$ligne")
+            node --max-old-space-size=12000 test/comparer_tuilages.js "../artefacts/tuiles-$a" "../artefacts/tuiles-$b" \
+              $(jq -r '.[2:][]' <<< "$ligne") || code=1
+          done < <(echo '${{ needs.plan.outputs.comparaisons }}' | jq -c '.[]')
+          exit $code
 
   pousser:
     needs: [plan, tuiler]
