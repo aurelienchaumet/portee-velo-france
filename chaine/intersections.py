@@ -118,8 +118,9 @@ def distance_polyligne(p, t):
     return float(np.min(np.hypot(*(a + u[:, None] * ab - p).T)))
 
 
-def croisements(lon, lat, a, b, cls, lm):
-    """Liste de (nœud, type 0 piste / 1 bande, arêtes de route croisées).
+def croisements(lon, lat, a, b, cls, lm, cibles=None):
+    """Liste de (nœud, type 0 piste / 1 bande, arêtes de route croisées). cibles : masque des nœuds à examiner
+    (croisements.py : nœuds du bloc, le reste ne sert qu'à suivre les voies) ; tous si None.
 
     Deux faux croisements écartés :
       - bande : la route dans son prolongement (à plus de 150°) est sa propre chaussée ;
@@ -132,6 +133,8 @@ def croisements(lon, lat, a, b, cls, lm):
     a_cyc = np.zeros(n, bool); a_cyc[a[cyc]] = True; a_cyc[b[cyc]] = True
     a_rte = np.zeros(n, bool); a_rte[a[~cyc]] = True; a_rte[b[~cyc]] = True
     est_cand = a_cyc & a_rte
+    if cibles is not None:
+        est_cand &= cibles
     # Adjacence complète (CSR) : il faut suivre les voies au-delà du nœud pour en lire la direction
     m = len(a)
     ext = np.concatenate([a, b]); vers = np.concatenate([b, a]); ar = np.concatenate([np.arange(m), np.arange(m)])
@@ -272,6 +275,26 @@ def lire_osm(parquets, emprise):
     return np.array(geoms), np.array(classes), tags, vers_l93
 
 
+def apparier_osm(geoms, classes, tags, vers_metres, lon, lat, a, b, cls, aretes):
+    """Tags OSM de chaque arête de route croisée : voie à APPARIEMENT_M au plus du milieu de l'arête, de même
+    classe de préférence, la plus proche. geoms : lignes dans la projection métrique vers_metres. {arête: tags}"""
+    if not len(aretes) or not len(geoms):
+        return {}
+    arbre = shapely.STRtree(geoms)
+    e = np.array(aretes)
+    mx, my = vers_metres.transform((lon[a[e]] + lon[b[e]]) / 2, (lat[a[e]] + lat[b[e]]) / 2)
+    pts = shapely.points(mx, my)
+    # plusieurs candidats à 5 m : on prend le plus proche de même classe
+    idx_pt, idx_g = arbre.query(pts, predicate="dwithin", distance=APPARIEMENT_M)
+    dist = shapely.distance(pts[idx_pt], geoms[idx_g])
+    meilleur = {}
+    for ip, ig, d in zip(idx_pt, idx_g, dist):
+        cle = (classes[ig] != cls[e[ip]], d)
+        if ip not in meilleur or cle < meilleur[ip][0]:
+            meilleur[ip] = (cle, ig)
+    return {int(e[ip]): tags[ig] for ip, (_c, ig) in meilleur.items()}
+
+
 def vitesse_osm(t):
     """km/h lus dans les tags (maxspeed, sinon zone:maxspeed / source:maxspeed / maxspeed:type), None sinon."""
     for cle in ("maxspeed", "zone"):
@@ -286,74 +309,22 @@ def vitesse_osm(t):
     return None
 
 
-# ---------------------------------------------------------------- principal
-def main():
-    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("--tuiles", default=str(ICI.parent / "tuiles"), help="dossier des tuiles du site (défaut ../tuiles)")
-    ap.add_argument("--parquet", action="append", default=[], help="GeoParquet OSM (extraire.py, ou cache/tmp/zones.parquet)")
-    ap.add_argument("--sortie", help="fichier de sortie (défaut <tuiles>/intersections.json)")
-    ap.add_argument("--rd", default=str(ICI / "cache" / "geosir-routes.geojson"), help="RD du Département (numéros)")
-    args = ap.parse_args()
-    t0 = time.time()
-    dossier = Path(args.tuiles)
-    index, lon, lat, a, b, l, cls, est_rd = charger_graphe(dossier)
-    if not est_rd.any():
-        raise SystemExit("aucune arête marquée RD : lancer d'abord marquer_rd.py sur ces tuiles")
-    print(f"graphe : {np.isfinite(lon).sum()} nœuds, {len(a)} arêtes ({time.time() - t0:.0f} s)")
-    liste = croisements(lon, lat, a, b, cls, l)
-    print(f"{len(liste)} nœuds de croisement")
-
-    # Agglomération présumée : longueur de rues (classe 2) autour du croisement (milieux d'arêtes)
-    coslat0 = np.cos(np.radians(46))
+# ---------------------------------------------------------------- croisements retenus
+def enregistrer(liste, lon, lat, cls, l, a, b, est_rd, tags_arete, num_rd, contour=None, genere=None, tags=False):
+    """Croisements retenus, au format de intersections.json (dict) : un par (nœud, catégorie RD / autres), la
+    route la plus rapide de la catégorie ; vitesse OSM ou présumée ; croisements proches fusionnés.
+    contour : géométrie (WGS84) hors de laquelle on écarte les croisements (marge des tuiles), ou None."""
+    coslat0 = np.cos(np.radians(np.nanmean(lat) if len(lat) else 46))
     def plan(lo, la):
         return np.column_stack([lo * coslat0 * M_PAR_DEG, la * M_PAR_DEG])
     rues = np.flatnonzero(cls == 2)
-    arbre_rues = cKDTree(plan((lon[a[rues]] + lon[b[rues]]) / 2, (lat[a[rues]] + lat[b[rues]]) / 2))
+    arbre_rues = cKDTree(plan((lon[a[rues]] + lon[b[rues]]) / 2, (lat[a[rues]] + lat[b[rues]]) / 2)) if len(rues) else None
     l_rues = l[rues]
-
-    # Appariement des routes croisées aux voies OSM
-    toutes = sorted({e for _n, _t, rs in liste for e, _o in rs})
-    tags_arete = {}
-    if args.parquet:
-        emprise = (np.nanmin(lon), np.nanmin(lat), np.nanmax(lon), np.nanmax(lat))
-        geoms, classes, tags, vers_l93 = lire_osm(args.parquet, emprise)
-        arbre = shapely.STRtree(geoms)
-        e = np.array(toutes)
-        mx, my = vers_l93.transform((lon[a[e]] + lon[b[e]]) / 2, (lat[a[e]] + lat[b[e]]) / 2)
-        pts = shapely.points(mx, my)
-        # plusieurs candidats à 5 m : on prend le plus proche de même classe
-        idx_pt, idx_g = arbre.query(pts, predicate="dwithin", distance=APPARIEMENT_M)
-        dist = shapely.distance(pts[idx_pt], geoms[idx_g])
-        meilleur = {}
-        for ip, ig, d in zip(idx_pt, idx_g, dist):
-            bonne = classes[ig] == cls[e[ip]]
-            cle = (not bonne, d)
-            if ip not in meilleur or cle < meilleur[ip][0]:
-                meilleur[ip] = (cle, ig)
-        for ip, (_c, ig) in meilleur.items():
-            tags_arete[int(e[ip])] = tags[ig]
-        print(f"  {len(tags_arete)} / {len(e)} routes croisées appariées à OSM")
-
-    # Numéro des RD croisées : couche du Département (même appariement que marquer_rd.py) ; à défaut (hors du 17
-    # ou écart de tracé), ref OSM
-    num_rd = {}
-    if Path(args.rd).exists():
-        from pyproj import Transformer
-        rd = charger_rd(args.rd)
-        e = np.array([x for x in toutes if est_rd[x]])
-        if len(e):
-            t = Transformer.from_crs(4326, 2154, always_xy=True)
-            x1, y1 = t.transform(lon[a[e]], lat[a[e]])
-            x2, y2 = t.transform(lon[b[e]], lat[b[e]])
-            seg = apparier(rd, x1, y1, x2, y2)
-            num_rd = {int(x): rd[2][s] for x, s in zip(e, seg) if s >= 0}
-        print(f"  {len(num_rd)} / {len(e)} RD croisées numérotées par la couche du Département")
-
     # Un enregistrement par (nœud, catégorie RD / autres) : la route la plus rapide de la catégorie
     enreg = []
     for nd, typ, routes in liste:
         p = plan(np.array([lon[nd]]), np.array([lat[nd]]))[0]
-        voisins = arbre_rues.query_ball_point(p, AGGLO_RAYON_M)
+        voisins = arbre_rues.query_ball_point(p, AGGLO_RAYON_M) if arbre_rues is not None else []
         agglo = l_rues[voisins].sum() >= AGGLO_RUES_M
         par_cat = {}
         for e, _o in routes:
@@ -377,10 +348,9 @@ def main():
         for cat, (_r, v, src, c, nom) in par_cat.items():
             enreg.append((nd, cat, typ, v, src, c, nom))
 
-    # Département seul (contour.json du site) : la marge de 25 km des tuiles ne sert qu'au calcul des trajets
-    contour = dossier / "contour.json"
-    if contour.exists():
-        dep = shapely.geometry.shape(json.loads(contour.read_text("utf-8"))["geometrie"]).buffer(0.002)
+    # Territoire seul (contour) : la marge des tuiles ne sert qu'au calcul des trajets
+    if contour is not None:
+        dep = contour.buffer(0.002)
         shapely.prepare(dep)
         enreg = [r for r in enreg if shapely.contains_xy(dep, lon[r[0]], lat[r[0]])]
     # Fusion des croisements proches de même catégorie (on garde le plus rapide, une piste avant une bande)
@@ -404,8 +374,8 @@ def main():
     sortie = {
         "version": 1,
         "genere": datetime.now().strftime("%Y-%m-%d %H:%M"),
-        "osm": index.get("genere"),
-        "tags": bool(args.parquet),
+        "osm": genere,
+        "tags": bool(tags),
         "agglo": {"rayonM": AGGLO_RAYON_M, "ruesM": AGGLO_RUES_M},
         "noms": [""] + noms,
         # colonnes : lon, lat (1e-5 degré), c catégorie (0 RD, 1 autres), t type (0 piste, 1 bande),
@@ -415,11 +385,60 @@ def main():
         "c": [r[1] for r in gardes], "t": [r[2] for r in gardes], "v": [r[3] for r in gardes],
         "s": [r[4] for r in gardes], "k": [r[5] for r in gardes], "n": [inom.get(r[6], 0) for r in gardes],
     }
+    return sortie
+
+
+# ---------------------------------------------------------------- principal
+def main():
+    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    ap.add_argument("--tuiles", default=str(ICI.parent / "tuiles"), help="dossier des tuiles du site (défaut ../tuiles)")
+    ap.add_argument("--parquet", action="append", default=[], help="GeoParquet OSM (extraire.py, ou cache/tmp/zones.parquet)")
+    ap.add_argument("--sortie", help="fichier de sortie (défaut <tuiles>/intersections.json)")
+    ap.add_argument("--rd", default=str(ICI / "cache" / "geosir-routes.geojson"), help="RD du Département (numéros)")
+    args = ap.parse_args()
+    t0 = time.time()
+    dossier = Path(args.tuiles)
+    index, lon, lat, a, b, l, cls, est_rd = charger_graphe(dossier)
+    if not est_rd.any():
+        raise SystemExit("aucune arête marquée RD : lancer d'abord marquer_rd.py sur ces tuiles")
+    print(f"graphe : {np.isfinite(lon).sum()} nœuds, {len(a)} arêtes ({time.time() - t0:.0f} s)")
+    liste = croisements(lon, lat, a, b, cls, l)
+    print(f"{len(liste)} nœuds de croisement")
+
+    # Appariement des routes croisées aux voies OSM
+    toutes = sorted({e for _n, _t, rs in liste for e, _o in rs})
+    tags_arete = {}
+    if args.parquet:
+        emprise = (np.nanmin(lon), np.nanmin(lat), np.nanmax(lon), np.nanmax(lat))
+        geoms, classes, tags, vers_l93 = lire_osm(args.parquet, emprise)
+        tags_arete = apparier_osm(geoms, classes, tags, vers_l93, lon, lat, a, b, cls, toutes)
+        print(f"  {len(tags_arete)} / {len(toutes)} routes croisées appariées à OSM")
+
+    # Numéro des RD croisées : couche du Département (même appariement que marquer_rd.py) ; à défaut (hors du 17
+    # ou écart de tracé), ref OSM
+    num_rd = {}
+    if Path(args.rd).exists():
+        from pyproj import Transformer
+        rd = charger_rd(args.rd)
+        e = np.array([x for x in toutes if est_rd[x]])
+        if len(e):
+            t = Transformer.from_crs(4326, 2154, always_xy=True)
+            x1, y1 = t.transform(lon[a[e]], lat[a[e]])
+            x2, y2 = t.transform(lon[b[e]], lat[b[e]])
+            seg = apparier(rd, x1, y1, x2, y2)
+            num_rd = {int(x): rd[2][s] for x, s in zip(e, seg) if s >= 0}
+        print(f"  {len(num_rd)} / {len(e)} RD croisées numérotées par la couche du Département")
+
+    # Département seul (contour.json du site) : la marge de 25 km des tuiles ne sert qu'au calcul des trajets
+    fc = dossier / "contour.json"
+    contour = shapely.geometry.shape(json.loads(fc.read_text("utf-8"))["geometrie"]) if fc.exists() else None
+    sortie = enregistrer(liste, lon, lat, cls, l, a, b, est_rd, tags_arete, num_rd, contour, index.get("genere"),
+                         bool(args.parquet))
+    gardes_c = sortie["c"]
     chemin = Path(args.sortie) if args.sortie else dossier / "intersections.json"
     chemin.write_text(json.dumps(sortie, ensure_ascii=False, separators=(",", ":")), "utf-8")
-    nb = lambda f: sum(1 for r in gardes if f(r))
-    print(f"{len(gardes)} croisements : {nb(lambda r: r[1] == 0)} avec une RD, {nb(lambda r: r[1] == 1)} avec d'autres voies ; "
-          f"vitesse OSM {nb(lambda r: r[4] == 0)}, présumée {nb(lambda r: r[4] == 1)}, chemins {nb(lambda r: r[4] == 2)}")
+    print(f"{len(gardes_c)} croisements : {gardes_c.count(0)} avec une RD, {gardes_c.count(1)} avec d'autres voies ; "
+          f"vitesse OSM {sortie['s'].count(0)}, présumée {sortie['s'].count(1)}, chemins {sortie['s'].count(2)}")
     print(f"→ {chemin} ({chemin.stat().st_size / 1024:.0f} Ko, {time.time() - t0:.0f} s)")
 
 

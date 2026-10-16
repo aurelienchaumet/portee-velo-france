@@ -91,6 +91,11 @@ jobs:
             --bande-lignes "$(jq -r '.bande_lignes // 0' <<< "$T")"
           grep -E "Maximum resident|Elapsed" ../mesure.txt
           echo "RAM max : $(awk '/Maximum resident/ {printf "%.1f Go", $NF / 1048576}' ../mesure.txt), durée : $(awk -F': ' '/Elapsed/ {print $2}' ../mesure.txt), $(find "../$(jq -r .sortie <<< "$T")" -name '*.bin' | wc -l) tuiles, $(du -sh "../$(jq -r .sortie <<< "$T")" | cut -f1)" >> "$GITHUB_STEP_SUMMARY"
+      # Croisements réseau cyclable × routes par blocs de tuiles (croisements.py, phase 5) : crx/ dans les tuiles
+      - name: Croisements
+        if: ${{ matrix.t.croisements }}
+        working-directory: chaine
+        run: python -I -X utf8 croisements.py --tuiles "../${{ matrix.t.sortie }}" --parquet 'cache/regions/*.parquet'
       - uses: actions/upload-artifact@v4
         with:
           name: tuiles-${{ matrix.t.nom }}

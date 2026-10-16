@@ -413,7 +413,7 @@ dialog.apropos .fermer{position:absolute;top:10px;right:10px;width:34px;height:3
 
     <div class="bloc" data-q="2">
       <p class="note" style="margin:0">En bleu, on y va tranquillement, presque aussi vite que par la route. En orange, il faut passer par une route exposée. Les traits noirs marquent les tronçons qui coincent depuis ce départ ; pour mesurer ce qu'apporterait leur aménagement : onglet Simuler.</p>
-      <p class="note" id="q3-ailleurs">Le classement des maillons manquants, tous départs confondus, existe pour <a href="?territoire=oleron#q=2">l'île d'Oléron</a>.</p>
+      <p class="note" id="q3-ailleurs" hidden></p>   <!-- classement des maillons (Oléron) : propre au SIT, absent ici -->
     </div>
 
     <div class="bloc" id="bloc-d4" data-q="2" hidden>
@@ -761,6 +761,7 @@ document.getElementById("replier").addEventListener("click", e => {
     vue.partielle = f.partielle;
     if (f.P === vue.P) return;
     vue.P = f.P; vue.g = f.P.grille; vue.centre = f.centre;
+    majCrxFenetre();
     vue.G = graphes(f.P);
     vue.g.pro.confort = vue.g.pro.tout; vue.g.dist.confort = vue.g.dist.tout;   // même réseau que « tout », poids différents
     if (masqueZone) appliquerMasque(vue.g, masqueZone, index.grille);   // vue territoire : cellules hors du territoire ni colorées ni comptées
@@ -1430,16 +1431,41 @@ document.getElementById("replier").addEventListener("click", e => {
   $("#crx-legende").innerHTML = CRX_PALIERS.map(([, c, nom]) => `<i style="background:${c}"></i><span>${nom}</span>`).join("")
     + `<i style="background:${CRX_CHEMIN}"></i><span>Chemin (sans objet)</span>`
     + `<i class="presumee" style="background:#fff"></i><span>Vitesse présumée</span>`;
-  function chargerCrx() {
-    if (!crx.charge) crx.charge = fetch(DOSSIER + "intersections.json").then(r => (r.ok ? r.json() : null)).catch(() => null).then(D => {
-      if (!D || !Array.isArray(D.lon)) return null;
-      const pts = D.lon.map((lo, i) => ({ lon: lo / 1e5, lat: D.lat[i] / 1e5, c: D.c[i], t: D.t[i], v: D.v[i], s: D.s[i], k: D.k[i], nom: D.noms[D.n[i]] || "" }))
-        .filter(p => !terr || d3.geoContains(terr.geometrie, [p.lon, p.lat]));
-      crx.D = { ...D, pts };
-      if (!D.tags) $("#crx-note").textContent += " Fichier d'essai : vitesses toutes présumées, RD devinées par la classe de la route.";
-      return crx.D;
-    });
-    return crx.charge;
+  // Croisements par blocs de tuiles (croisements.py, phase 5) : crx/index.json et crx/<bx>_<by>.json ; seuls les
+  // blocs qui couvrent la fenêtre sont lus (cache), et relus quand la fenêtre change. À défaut, l'ancien fichier
+  // unique intersections.json (intersections.py, un département).
+  const versPoints = D => D.lon.map((lo, i) => ({ lon: lo / 1e5, lat: D.lat[i] / 1e5, c: D.c[i], t: D.t[i], v: D.v[i], s: D.s[i], k: D.k[i], nom: D.noms[D.n[i]] || "" }))
+    .filter(p => !terr || d3.geoContains(terr.geometrie, [p.lon, p.lat]));
+  async function chargerCrx() {
+    if (crx.mode === undefined) {
+      const I = await fetch(DOSSIER + "crx/index.json").then(r => (r.ok ? r.json() : null)).catch(() => null);
+      if (I && I.bloc) Object.assign(crx, { mode: "blocs", index: I, blocs: new Map(), existe: new Set(I.blocs.map(([x, y]) => `${x}_${y}`)) });
+      else crx.mode = "fichier";
+      if (I && !I.tags) $("#crx-note").textContent += " Fichier d'essai : vitesses toutes présumées.";
+    }
+    if (crx.mode === "fichier") {
+      if (!crx.charge) crx.charge = fetch(DOSSIER + "intersections.json").then(r => (r.ok ? r.json() : null)).catch(() => null).then(D => {
+        if (!D || !Array.isArray(D.lon)) return null;
+        crx.D = { ...D, pts: versPoints(D) };
+        if (!D.tags) $("#crx-note").textContent += " Fichier d'essai : vitesses toutes présumées, RD devinées par la classe de la route.";
+        return crx.D;
+      });
+      return crx.charge;
+    }
+    if (!vue.centre) return null;
+    const [cx, cy] = vue.centre, B = crx.index.bloc, cles = [];
+    for (let by = Math.floor((cy - RAYON) / B); by <= Math.floor((cy + RAYON) / B); by++)
+      for (let bx = Math.floor((cx - RAYON) / B); bx <= Math.floor((cx + RAYON) / B); bx++)
+        if (crx.existe.has(`${bx}_${by}`)) cles.push(`${bx}_${by}`);
+    await Promise.all(cles.filter(k => !crx.blocs.has(k)).map(k => fetch(`${DOSSIER}crx/${k}.json`)
+      .then(r => (r.ok ? r.json() : null)).catch(() => null).then(D => crx.blocs.set(k, D && Array.isArray(D.lon) ? versPoints(D) : []))));
+    crx.D = { tags: crx.index.tags, pts: cles.flatMap(k => crx.blocs.get(k)) };
+    return crx.D;
+  }
+  // Fenêtre déplacée : blocs de croisements de la nouvelle fenêtre (installerFenetre)
+  function majCrxFenetre() {
+    if (crx.mode !== "blocs" || !crx.actifs.some(Boolean)) return;
+    chargerCrx().then(() => { [0, 1].forEach(dessinerCrx); resumeCrx(); });
   }
   function bulleCrx(p) {
     const route = p.c === 0 ? (p.nom || "Route départementale") : (p.nom || CLASSES[p.k].nom);
@@ -1466,7 +1492,7 @@ document.getElementById("replier").addEventListener("click", e => {
   function resumeCrx() {
     const el = $("#crx-resume");
     if (!crx.D || !crx.actifs.some(Boolean)) { el.hidden = true; return; }
-    const lieu = terr ? terr.nom : LIEU.le;
+    const lieu = crx.mode === "blocs" && !terr ? "dans la zone chargée autour du départ" : terr ? terr.nom : LIEU.le;
     el.innerHTML = [0, 1].filter(c => crx.actifs[c]).map(c => {
       const pts = crx.D.pts.filter(p => p.c === c), vite = pts.filter(p => p.s !== 2 && p.v >= 70).length;
       return `<b>${pts.length.toLocaleString("fr-FR")}</b> croisements avec ${c === 0 ? "une RD" : "d'autres routes"}, dont <b>${vite.toLocaleString("fr-FR")}</b> à 70 km/h ou plus`;
