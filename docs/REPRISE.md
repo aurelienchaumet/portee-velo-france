@@ -102,7 +102,7 @@ Mise en place faite (pour mémoire) :
 
 Plus tard : déployer depuis `main` plutôt que `france-entiere` (après fusion), et décider du sort de GitHub Pages.
 
-## Phase 4 (16/10/2026, en cours) : métropole
+## Phase 4 (16/10/2026) : métropole
 
 - Essai Bretagne d'un bloc : 665 tuiles, 5,3 M nœuds, 2,65 Go de RAM, 3 min → la France d'un bloc demanderait
   ~50 Go (Actions : 16 Go). D'où le **tuilage par bandes** (`tuiler.py --bande-lignes N`, sans changer le format
@@ -118,12 +118,17 @@ Plus tard : déployer depuis `main` plutôt que `france-entiere` (après fusion)
 - Choix d'Aurélien : tuiles de la métropole dans la **release GitHub `tuiles-fr`** (un tar, remplacé à chaque
   tuilage), pas dans git ; `deployer.yml` reprend les releases `tuiles-*`. Page : **départ tiré au sort** parmi
   les 96 chefs-lieux à chaque visite (sans lien), carte ouverte dessus au zoom 10.
-- Lancé le 16/10 vers 19 h 20 (commit 838bee0) : 22 régions extraites puis tuilées par bandes de 5 lignes
-  (`a_tuiler.json`). Durée estimée ~2 h.
+- **Fait le 16/10 (run 38938958665)** : extraction des 22 régions 20 min, tuilage 22 min, 5,8 Go de RAM ;
+  6 281 tuiles, 86 M nœuds, 540 Mo (88 Ko par tuile) ; release `tuiles-fr` ; déployé (2e essai : un 504 de l'API
+  Cloudflare au premier, `deployer.yml` réessaie désormais 3 fois). Non-régression Oléron sur les tuiles
+  nationales : identique au 17 seul (≤ 0,7 point). Contrôle dans Chromium : Paris, Marseille, tirage au sort.
+- `tuiles/fr/` (17) retiré du dépôt : pour travailler en local, `curl -L -o tuiles-fr.tar
+  https://github.com/aurelienchaumet/portee-velo-france/releases/download/tuiles-fr/tuiles-fr.tar` puis
+  `tar -xf tuiles-fr.tar -C tuiles/fr`.
+- Poids d'une fenêtre de 5 × 5 tuiles : Paris 8,1 Mo, Marseille 3,5 Mo, La Rochelle 1,7 Mo. **À mesurer sur
+  téléphone à Paris** avant de décider d'alléger les tuiles (contraction des nœuds de degré 2).
 
-Reste (phase 4) : vérifier le run (release `tuiles-fr`, déploiement), contrôle visuel du site (Aurélien,
-`workers.dev` bloqué depuis le cloud), non-régression Oléron sur les tuiles nationales, puis retirer
-`tuiles/fr/` (17) du dépôt. Choroplèthe des 101 chefs-lieux (`france.html`, anciennes tuiles à la racine de
-`tuiles/`) : à refaire sur les tuiles nationales.
+Reste (phase 4) : contrôle visuel du site en ligne par Aurélien ; choroplèthe des 101 chefs-lieux
+(`france.html`, anciennes tuiles à la racine de `tuiles/`) à refaire sur les tuiles nationales.
 
 Phases suivantes : voir la spec (§7).

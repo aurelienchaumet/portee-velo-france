@@ -64,4 +64,6 @@ jobs:
       - if: steps.secrets.outputs.ok == 'true'
         run: ./deploiement/construire.sh
       - if: steps.secrets.outputs.ok == 'true'
-        run: npx --yes wrangler@4.151.1 deploy
+        # Jusqu'à 3 essais : l'API Cloudflare a déjà répondu 504 à l'ouverture de la session d'envoi (16/10/2026,
+        # 7 900 fichiers), puis accepté le même envoi à la relance
+        run: for i in 1 2 3; do npx --yes wrangler@4.151.1 deploy && exit 0; echo "essai $i échoué"; sleep $((30 * i)); done; exit 1

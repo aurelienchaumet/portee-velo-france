@@ -9,3 +9,6 @@ CLAUDE.md
 # Site construit pour Cloudflare (deploiement/construire.sh)
 dist/
 .wrangler/
+
+# Métropole : release tuiles-fr (trop lourde pour git), récupérée par deployer.yml
+tuiles/fr/
