@@ -1,8 +1,10 @@
 // Compare deux tuilages d'une même zone (phase 4 : d'un bloc et par bandes) : graphes recollés (arêtes repérées
 // par leurs coordonnées) et minutes par cellule depuis quelques départs.
 // Usage : node test/comparer_tuilages.js <dossier A> <dossier B> [lon,lat ...]
-// Écrit un résumé (et l'ajoute à $GITHUB_STEP_SUMMARY s'il existe) ; code de sortie 1 si les graphes diffèrent
-// de plus de 0,1 % des arêtes ou si plus de 0,1 % des cellules atteintes changent de temps.
+// Écrit un résumé (et l'ajoute à $GITHUB_STEP_SUMMARY s'il existe) ; code de sortie 1 si plus de 0,1 % des
+// arêtes de A manquent dans B, ou si plus de 0,1 % des cellules atteintes changent de temps. Les arêtes en plus
+// dans B sont seulement comptées : par bandes, les petits morceaux isolés qui touchent un raccord sont gardés
+// (d'un bloc, seule la plus grande composante l'est).
 const fs = require("fs");
 const path = require("path");
 const C = require("../../coeur.js");
@@ -40,7 +42,7 @@ function aretes(P) {
     for (const k of sA) if (!sB.has(k)) seulA++;
     for (const k of sB) if (!sA.has(k)) seulB++;
     lignes.push(`- arêtes seulement dans A : ${seulA}, seulement dans B : ${seulB}`);
-    if ((seulA + seulB) / A.m > 0.001) echec = true;
+    if (seulA / A.m > 0.001) echec = true;
   }
   const departs = pts.length ? pts.map(p => p.split(",").map(Number)) : [];
   for (const mode of ["tout", "amenage"]) {
@@ -53,6 +55,7 @@ function aretes(P) {
       if (!a || !b) { lignes.push(`- ${mode} ${d} : départ non accroché (${!!a} / ${!!b})`); continue; }
       let atteintes = 0, ecarts = 0, maxEcart = 0;
       for (let k = 0; k < a.length; k++) {
+        if (Number.isNaN(a[k]) && Number.isNaN(b[k])) continue;      // hors terre dans les deux (NaN ≠ NaN)
         if (a[k] > 60 && b[k] > 60) continue;
         atteintes++;
         if (a[k] !== b[k]) { ecarts++; maxEcart = Math.max(maxEcart, Math.abs(a[k] - b[k])); }
