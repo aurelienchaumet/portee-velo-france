@@ -37,15 +37,27 @@ Dépendances Python : duckdb (+ extension spatial), quackosm, numpy, scipy, shap
 ## Reste à faire
 
 Phase 1 :
-1. `tuiles/fr/` : la métropole passe aussi dans un sous-dossier ; re-tuiler le 17 en OSM seul
-   (`--grille fr --departement 17 --sortie ../tuiles/fr`, nécessite les GeoParquet Poitou-Charentes, Aquitaine,
-   Pays de la Loire) — à faire sur GitHub Actions ou plus tard.
-2. Textes de la page propres au 17 (« Charente-Maritime », départ par défaut, message `dansZone`) : les tirer de
-   `contour.json` (nom) et d'une mairie OSM (départ).
-3. `contour.json` de la Réunion : MultiPolygon de 6 parties dont 5 carrés de 4 points (relation OSM admin_level 6) :
-   garder la plus grande partie, ou les parties de plus de X km².
-4. Carré gris au nord-ouest de la Réunion (vers Saint-Paul) : vient du fond IGN (reste quand le calque de chaleur
-   est masqué), pas des tuiles. À vérifier à un autre zoom ; sinon ignorer.
-5. 404 attendus et sans effet : `tuiles/974/accessibilite.json`, `epci.json` (phase 6).
+1. `tuiles/fr/` : le 17 re-tuilé en OSM seul par GitHub Actions (`.github/workflows/tuiler.yml`, lancé par le
+   push qui modifie `chaine/a_tuiler.json` ; les tuiles reviennent en commit du bot sur la branche). Vérifier le
+   run, puis contrôle visuel de `index.html` (sans `?zone`) et non-régression OSM seul d'Oléron (≤ 1 point).
+   Tant que `tuiles/fr/` manque, la page sans `?zone` affiche « Données indisponibles ».
+2. Les anciennes tuiles à la racine de `tuiles/` (96 chefs-lieux, ancien format) ne servent plus qu'à
+   `france.html` : à remplacer en phase 4.
+3. Carré gris au nord-ouest de la Réunion (vers Saint-Paul) : vient du fond IGN, pas des tuiles. À revoir à
+   un autre zoom ; sinon ignorer.
+4. 404 attendus et sans effet : `tuiles/<zone>/accessibilite.json`, `epci.json` (phase 6).
+
+Fait le 16/10/2026 (2e session) :
+- `chaine/lieux.py` : contour nettoyé (parties < 0,05 km² retirées : plus de carrés de 4 points à la Réunion),
+  formes du nom (« en … », « de … », « sur … », table `FORMES` pour le 17 et les DROM), départ par défaut =
+  mairie de la commune la plus peuplée (tag `population`). Écrits dans `contour.json` par `tuiler.py
+  --departement`. `choisir_mairie` déplacée de `chefs_lieux.py` vers `lieux.py`.
+- `index.html` : plus de texte propre au 17 (titre, chapeau, consignes, messages, sources en OSM seul, RD =
+  routes secondaires et tertiaires OSM en attendant la BD TOPO).
+- `tuiles/974/contour.json` nettoyé à la main avec `lieux.py` (sans départ : il viendra du re-tuilage Actions).
+- Départements métropolitains : `FORMES` à compléter en phase 4 (article et genre d'après le COG de l'INSEE).
+
+Contrôle visuel depuis une session cloud : le CDN (Leaflet, d3) et le fond IGN y sont bloqués ; Playwright
+avec `page.route` pour servir le site et des copies npm de Leaflet 1.9.4 et d3 7.9.0 suffit (carte sans fond).
 
 Phases suivantes : voir la spec (§7).

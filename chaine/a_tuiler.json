@@ -1,0 +1,9 @@
+{
+ "_note": "Tuilages faits par GitHub Actions (.github/workflows/tuiler.yml) : modifier ce fichier et pousser relance le calcul ; les tuiles reviennent en commit sur la branche. regions = extraits Geofabrik (europe/france/<region>-latest.osm.pbf).",
+ "tuilages": [
+  {"nom": "17", "grille": "fr", "departement": "17", "marge_km": 25, "sortie": "tuiles/fr",
+   "regions": ["poitou-charentes", "aquitaine", "pays-de-la-loire"]},
+  {"nom": "974", "grille": "974", "departement": "974", "marge_km": 2, "sortie": "tuiles/974",
+   "regions": ["reunion"]}
+ ]
+}

@@ -40,6 +40,7 @@ from scipy.spatial import cKDTree
 
 ICI = Path(__file__).resolve().parent
 sys.path[:0] = [str(ICI), str(ICI.parent)]   # -I retire le dossier du script du chemin
+from lieux import depart_par_defaut, formes, nettoyer_contour  # noqa: E402  textes et départ de la page
 from build_graph_velo import (CLASSES_AMEN, CLES_CYCLEWAY, TAMPON_CONTOUR_M,  # noqa: E402  règles communes
                               classer, integrer_reseau)                          # avec la carte Oléron
 # Classes fines (11/10/2026, décision D1) : la classe 2 de classer() est découpée selon highway pour que la
@@ -328,9 +329,10 @@ class MasqueTerre:
         return shapely.contains_xy(sol, clon, clat)
 
 
-def ecrire_contour_departement(con, parquets, code, marge_km, sortie):
+def ecrire_contour_departement(con, parquets, code, marge_km, sortie, vers_metres):
     """Contour OSM du département (boundary=administrative, admin_level=6, ref=code) : écrit contour.json
-    (GeoJSON simplifié, pour la page : limite du survol) et renvoie l'emprise élargie de marge_km."""
+    (GeoJSON simplifié, pour la page : limite du survol ; nom et ses formes, départ par défaut, marge,
+    voir lieux.py) et renvoie l'emprise élargie de marge_km."""
     r = con.execute(f"""
         SELECT tags['name'], ST_AsWKB(geometry) FROM read_parquet({[str(p) for p in parquets]!r})
         WHERE tags['boundary'] = 'administrative' AND tags['admin_level'] = '6' AND tags['ref'] = ?
@@ -340,12 +342,16 @@ def ecrire_contour_departement(con, parquets, code, marge_km, sortie):
     nom, geom = r[0], shapely.from_wkb(bytes(r[1]))
     sortie.mkdir(parents=True, exist_ok=True)
     simple = shapely.simplify(geom, 0.0005)                  # ~50 m : assez pour tester « dans le département »
-    (sortie / "contour.json").write_text(json.dumps({"code": code, "nom": nom, "geometrie": shapely.geometry.mapping(simple)},
-                                                    ensure_ascii=False), "utf-8")
+    simple = nettoyer_contour(simple, vers_metres)           # sans les rochers devenus carrés de 4 points
+    depart = depart_par_defaut(con, parquets, code, geom)
+    (sortie / "contour.json").write_text(json.dumps({
+        "code": code, "nom": nom, **formes(code, nom), "margeKm": marge_km, "depart": depart,
+        "geometrie": shapely.geometry.mapping(simple)}, ensure_ascii=False), "utf-8")
     w, s, e, n = geom.bounds
     dlat = marge_km / 111.32
     dlon = marge_km / (111.32 * math.cos(math.radians((s + n) / 2)))
-    print(f"Département {code} ({nom}) : contour écrit, emprise élargie de {marge_km:g} km")
+    print(f"Département {code} ({nom}) : contour écrit, emprise élargie de {marge_km:g} km ; départ par défaut : "
+          + (f"{depart['commune']} ({depart['choix']})" if depart else "aucune commune trouvée, centre du contour"))
     return (w - dlon, s - dlat, e + dlon, n + dlat)
 
 
@@ -475,7 +481,8 @@ def main():
     sortie = Path(args.sortie)
     sortie.mkdir(parents=True, exist_ok=True)
     if args.departement:
-        emprises.append(ecrire_contour_departement(con, parquets, args.departement, args.marge_km, sortie))
+        emprises.append(ecrire_contour_departement(con, parquets, args.departement, args.marge_km, sortie,
+                                                   Transformer.from_crs(4326, EPSG, always_xy=True)))
     if args.chefs_lieux:
         for c in json.loads(Path(args.chefs_lieux).read_text("utf-8")):
             dlat = args.rayon_km / 111.32

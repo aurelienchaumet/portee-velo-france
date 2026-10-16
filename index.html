@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>À portée de vélo – Charente-Maritime</title>
+<title>À portée de vélo</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Libre+Baskerville:wght@400;700&family=Public+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -265,7 +265,7 @@ dialog.apropos .fermer{position:absolute;top:10px;right:10px;width:34px;height:3
 </style>
 </head>
 <body>
-<div id="carte" role="application" aria-label="Carte des temps de trajet à vélo en Charente-Maritime"></div>
+<div id="carte" role="application" aria-label="Carte des temps de trajet à vélo"></div>
 
 <!-- Légende détachée du panneau (13/10/2026) : visible quel que soit l'onglet ; montre la légende de la carte affichée -->
 <div class="legende-carte" id="legende-carte" aria-label="Légende de la carte">
@@ -316,7 +316,7 @@ dialog.apropos .fermer{position:absolute;top:10px;right:10px;width:34px;height:3
     <span class="entree"><span class="trait-piste" aria-hidden="true"></span> Pistes</span>
     <span class="entree"><span class="trait-bande" aria-hidden="true"></span> Bandes</span>
   </label>
-  <label class="case-reseau" for="voir-rd" title="Routes départementales d'après la couche du Département de la Charente-Maritime (au-delà : routes tertiaires et secondaires d'OpenStreetMap)">
+  <label class="case-reseau" for="voir-rd" title="Routes départementales : routes secondaires et tertiaires d'OpenStreetMap (en attendant la BD TOPO de l'IGN)">
     <input type="checkbox" id="voir-rd">
     <span class="entree"><span class="trait-rd" aria-hidden="true"></span> Départementales</span>
   </label>
@@ -327,7 +327,7 @@ dialog.apropos .fermer{position:absolute;top:10px;right:10px;width:34px;height:3
   <header class="entete">
     <button type="button" class="replier" id="replier" aria-expanded="true"><span class="texte">Replier</span> <span class="fleche" aria-hidden="true">▾</span></button>
     <h1>À portée de vélo</h1>
-    <p>Jusqu'où va-t-on à vélo depuis chaque point de la Charente-Maritime, et dans quel confort, d'après OpenStreetMap</p>
+    <p>Jusqu'où va-t-on à vélo depuis chaque point du territoire, et dans quel confort, d'après OpenStreetMap</p>
     <!-- Lien et crédits en icônes (13/10/2026) : ils tenaient le bas de chaque onglet -->
     <div class="outils">
       <button type="button" id="partager" title="Copier le lien de cette vue" aria-label="Copier le lien de cette vue">
@@ -476,7 +476,7 @@ dialog.apropos .fermer{position:absolute;top:10px;right:10px;width:34px;height:3
     </div>
 
     <div class="bloc" data-q="4" id="q5-ailleurs">
-      <p class="note" style="margin:0" id="q5-texte">Le bilan pour tous les habitants est calculé pour chaque intercommunalité de Charente-Maritime : placez le départ D dans le département.</p>
+      <p class="note" style="margin:0" id="q5-texte">Le bilan pour tous les habitants, par intercommunalité, n'est pas encore calculé ici.</p>
     </div>
 
     <!-- Socle commun : suivi, consigne et trajet, après le contenu de la question -->
@@ -500,8 +500,8 @@ dialog.apropos .fermer{position:absolute;top:10px;right:10px;width:34px;height:3
   <h2 id="apropos-titre">À propos</h2>
   <div class="credits">
     <p>Temps réels : 20 km/h sur revêtement lisse, 13 à 17 km/h sur stabilisé ou grave, 8 km/h sur sable, sur piste comme sur route (+5 % sur route pour préférer une piste qui la longe). Sens uniques à contre-sens : vélo poussé, à 5 km/h. Accès au réseau à vol d'oiseau, majoré de 30 %, à 16 km/h. Ni vent, ni relief.</p>
-    <p><strong>Réseaux.</strong> Avec les routes : tout le réseau, trajet le plus rapide. Sans départementales : départementales (couche du Département) et nationales interdites sauf pour les traverser, giratoire compris. Sans les routes : pistes, voies vertes et bandes, reliées par de courtes liaisons.</p>
-    <p><strong>Sources.</strong> Réseau cyclable : communautés de communes de l'île d'Oléron et du bassin de Marennes sur leur territoire, OpenStreetMap ailleurs. Routes départementales : Département de la Charente-Maritime (Licence Ouverte). Routes, contours et trait de côte : OpenStreetMap (© contributeurs, ODbL), données figées à une date. Fond Plan IGN. Adresses Géoplateforme. <span id="meta"></span></p>
+    <p><strong>Réseaux.</strong> Avec les routes : tout le réseau, trajet le plus rapide. Sans départementales : départementales (routes secondaires et tertiaires d'OpenStreetMap) et nationales interdites sauf pour les traverser, giratoire compris. Sans les routes : pistes, voies vertes et bandes, reliées par de courtes liaisons.</p>
+    <p><strong>Sources.</strong> Réseau cyclable, routes (départementales : routes secondaires et tertiaires), contours et trait de côte : OpenStreetMap (© contributeurs, ODbL), données figées à une date. Fond Plan IGN. Adresses Géoplateforme. <span id="meta"></span></p>
     <p><strong>Inspiration.</strong> <a href="https://tram.camilleroux.com/" target="_blank" rel="noopener">À portée de tram</a> de Camille Roux, lui-même issu du <a href="https://castrio.me/nyc/" target="_blank" rel="noopener">NYC Transit Time Cartogram</a> d'Anthony Castrio et de sa <a href="https://github.com/JulesGrandin/paris-temps-transport" target="_blank" rel="noopener">déclinaison parisienne</a> par Jules Grandin. Réalisation : SIT du Pôle Marennes-Oléron, <a href="https://github.com/sit-pmo/portee-velo" target="_blank" rel="noopener">code source</a> (MIT).</p>
   </div>
 </dialog>
@@ -565,7 +565,7 @@ document.getElementById("replier").addEventListener("click", e => {
   const NOTES = {
     amenage: `Pistes, voies vertes et bandes cyclables d'OpenStreetMap, reliées entre elles par de courtes liaisons : jusqu'à ${CFG.liaisonMaxM} m sur rue calme ou chemin, ${CFG.liaisonMaxM / 2} m sur route, plus les traversées de chaussée. En gris, les secteurs à plus de ${CFG.accesMaxM.amenage} m de ce réseau.`,
     tout: "Pistes et bandes, complétées par les routes et chemins, au temps réel (+5 % sur route pour préférer une piste qui la longe).",
-    sansdep: `Pistes et bandes, rues, voies communales et chemins, sans jamais emprunter une départementale (couche du Département de la Charente-Maritime) ni une nationale : on peut seulement la traverser, giratoire compris (au plus ${CFG.traverseeDepMaxM} m). Une piste le long d'une départementale reste permise. En gris, les secteurs à plus de ${CFG.accesMaxM.sansdep} m de ce réseau.`,
+    sansdep: `Pistes et bandes, rues, voies communales et chemins, sans jamais emprunter une départementale (route secondaire ou tertiaire d'OpenStreetMap) ni une nationale : on peut seulement la traverser, giratoire compris (au plus ${CFG.traverseeDepMaxM} m). Une piste le long d'une départementale reste permise. En gris, les secteurs à plus de ${CFG.accesMaxM.sansdep} m de ce réseau.`,
   };
   const LIBELLES_MODE = { amenage: "sans les routes", sansdep: "sans départementales", tout: "avec les routes" };
 
@@ -591,6 +591,13 @@ document.getElementById("replier").addEventListener("click", e => {
     return;
   }
   definirGrille(index.grille);
+  // Nom du territoire tuilé et ses formes (contour.json, chaine/lieux.py) : plus aucun texte propre au 17
+  const LIEU = { nom: contourDep.nom || "", en: contourDep.en || `en ${contourDep.nom}`, de: contourDep.de || `de ${contourDep.nom}`,
+    sur: contourDep.sur || `sur ${contourDep.nom}` };
+  LIEU.le = LIEU.sur.replace(/^sur /, "");               // « la Charente-Maritime », « La Réunion », « Mayotte »
+  document.title = `À portée de vélo – ${LIEU.nom}`;
+  $("#carte").setAttribute("aria-label", `Carte des temps de trajet à vélo ${LIEU.en}`);
+  $(".entete p").textContent = `Jusqu'où va-t-on à vélo depuis chaque point ${LIEU.de}, et dans quel confort, d'après OpenStreetMap`;
   // ---------- Vue d'un territoire (comme l'ancienne carte Marennes-Oléron) : ?territoire=oleron (l'île),
   // ?territoire=pmo (les 14 communes). Seul le territoire est coloré, l'emprise est bloquée dessus et la
   // couverture est en % de ses cellules de 100 m (centre dans le contour). Sans paramètre : tout le département.
@@ -673,8 +680,10 @@ document.getElementById("replier").addEventListener("click", e => {
     [bc.getNorth() + dLat * (pb + m.n), bc.getEast() + dLon * (pb + m.e)]]);
   carte.options.maxBoundsViscosity = 1;
   if (terr) carte.setMinZoom(carte.getZoom() - 0.5);  // pas de dézoom au-delà de la vue d'ensemble du territoire
-  // Départ par défaut : mairie de La Rochelle ; sur Marennes-Oléron, celle de Saint-Pierre-d'Oléron
-  const DEPART_DEFAUT = terr ? L.latLng(45.9443, -1.3063) : ZONE === "fr" ? L.latLng(46.1595, -1.1513) : contour.getBounds().getCenter();
+  // Départ par défaut : mairie de la commune la plus peuplée (contour.json, chaine/lieux.py), à défaut le centre
+  // du contour ; sur Marennes-Oléron, celle de Saint-Pierre-d'Oléron
+  const DEPART_DEFAUT = terr ? L.latLng(45.9443, -1.3063)
+    : contourDep.depart ? L.latLng(contourDep.depart.lat, contourDep.depart.lon) : contour.getBounds().getCenter();
 
   let toile = null, ctx = null, image = null, chaleur = null;
   // Calque Leaflet qui affiche directement un <canvas> (au lieu d'une image PNG) : à chaque image du survol,
@@ -859,7 +868,7 @@ document.getElementById("replier").addEventListener("click", e => {
     const acc = etat.res && meilleure(etat.res, departs(s.P, Gm, lng, lat));
     if (acc) { dessinerTrajet(s.P, Gm, etat.res, etat.acc, acc); return; }
     $("#etapes").innerHTML = "";
-    // Tuiles présentes sous l'arrivée (17 et 25 km autour) : l'itinéraire peut se calculer
+    // Tuiles présentes sous l'arrivée (territoire et sa marge) : l'itinéraire peut se calculer
     const tuilee = chargeur.existe.has(chargeur.tuileDe(lng, lat).join("_"));
     if (etat.acc && tuilee) {
       $("#duree").textContent = loin ? "Calcul…" : "Plus loin";
@@ -869,7 +878,7 @@ document.getElementById("replier").addEventListener("click", e => {
     }
     $("#duree").textContent = "Hors d'atteinte";
     $("#detail").textContent = !etat.acc ? "Le départ n'est relié à aucune voie."
-      : "Cette arrivée est hors de la zone calculée (Charente-Maritime et 25 km autour).";
+      : `Cette arrivée est hors de la zone calculée (${LIEU.nom}${contourDep.margeKm ? ` et ${contourDep.margeKm} km autour` : ""}).`;
   }
 
   // Itinéraire au-delà de la fenêtre : couloir de 10 km de part et d'autre de la ligne droite, élargi à 25 km
@@ -1416,7 +1425,7 @@ document.getElementById("replier").addEventListener("click", e => {
   function resumeCrx() {
     const el = $("#crx-resume");
     if (!crx.D || !crx.actifs.some(Boolean)) { el.hidden = true; return; }
-    const lieu = terr ? terr.nom : "la Charente-Maritime";
+    const lieu = terr ? terr.nom : LIEU.le;
     el.innerHTML = [0, 1].filter(c => crx.actifs[c]).map(c => {
       const pts = crx.D.pts.filter(p => p.c === c), vite = pts.filter(p => p.s !== 2 && p.v >= 70).length;
       return `<b>${pts.length.toLocaleString("fr-FR")}</b> croisements avec ${c === 0 ? "une RD" : "d'autres routes"}, dont <b>${vite.toLocaleString("fr-FR")}</b> à 70 km/h ou plus`;
@@ -1616,7 +1625,7 @@ document.getElementById("replier").addEventListener("click", e => {
     const e = epciDe(etat.depart), code = e ? e.code : null;
     if (code === epciDiag.code) return;
     epciDiag.code = code;
-    if (!e) {                                    // départ hors des EPCI de Charente-Maritime : pas de bilan
+    if (!e) {                                    // départ hors des EPCI calculés : pas de bilan
       if (diag.actif) basculerDiag(false);
       diag.D = null; $("#bloc-diag").hidden = true; $("#q5-ailleurs").hidden = false;
       return;
@@ -1755,7 +1764,7 @@ document.getElementById("replier").addEventListener("click", e => {
 
   // recentrer : force le recentrage même pendant le survol (appel à l'arrêt de la souris)
   async function placerDepart(ll, complet, recentrer = false) {
-    if (!dansZone(ll)) { afficherMessage(`Le départ doit être ${terr ? "sur " + terr.nom : "en Charente-Maritime"}.`); return; }
+    if (!dansZone(ll)) { afficherMessage(`Le départ doit être ${terr ? "sur " + terr.nom : LIEU.en}.`); return; }
     const id = ++demande;
     etat.depart = ll;
     marqueurDepart.setLatLng(ll).addTo(carte);
@@ -1796,7 +1805,7 @@ document.getElementById("replier").addEventListener("click", e => {
   // ---------- Survol : le départ suit la souris (écrans à pointeur fin uniquement) ----------
   const survolPossible = window.matchMedia("(hover: hover) and (pointer: fine)").matches;
   const CONSIGNES = {
-    suivi: `Déplacez la souris sur ${terr ? terr.nom : "la Charente-Maritime"} : les temps suivent. Cliquez pour fixer le départ.`,
+    suivi: `Déplacez la souris ${terr ? "sur " + terr.nom : LIEU.sur} : les temps suivent. Cliquez pour fixer le départ.`,
     // Le clic place ce que dit la bascule Départ / Arrivée de la recherche (14/10/2026 : un clic posait une arrivée
     // sans qu'on l'ait demandé, par exemple en cliquant sur un croisement)
     fixe: () => etat.cible === "arrivee"
@@ -1812,7 +1821,7 @@ document.getElementById("replier").addEventListener("click", e => {
   }
   carte.on("mousemove", ev => {
     if (outil.actif) { dessinerTraceEnCours(ev.latlng); return; }
-    // Survol en direct : seulement dans le 17 et au zoom détaillé (ailleurs, rien ne bouge)
+    // Survol en direct : seulement dans le territoire et au zoom détaillé (ailleurs, rien ne bouge)
     if (!etat.suivre || !dansZone(ev.latlng)) return;
     planifierDepart(ev.latlng);
     clearTimeout(minuteurPause);
@@ -1942,7 +1951,7 @@ document.getElementById("replier").addEventListener("click", e => {
     const res = (fc.features || []).filter(f => dansZone(L.latLng(f.geometry.coordinates[1], f.geometry.coordinates[0]))).slice(0, 6);
     liste.innerHTML = res.length
       ? res.map((f, i) => `<li><button type="button" data-i="${i}">${echapper(f.properties.name || f.properties.label)}<small>${echapper([f.properties.postcode, f.properties.city].filter(Boolean).join(" "))}</small></button></li>`).join("")
-      : `<li class="vide">Aucune adresse trouvée ${terr ? "sur " + terr.nom : "en Charente-Maritime"} pour « ${echapper(q)} ».</li>`;
+      : `<li class="vide">Aucune adresse trouvée ${terr ? "sur " + terr.nom : LIEU.en} pour « ${echapper(q)} ».</li>`;
     liste.hidden = false;
     liste.querySelectorAll("button").forEach(b => b.addEventListener("click", () => {
       const f = res[+b.dataset.i], ll = L.latLng(f.geometry.coordinates[1], f.geometry.coordinates[0]);
@@ -2009,7 +2018,8 @@ document.getElementById("replier").addEventListener("click", e => {
     + `<span></span>` + MAQ_PALIERS.map(s => `<span style="text-align:center">${s}</span>`).join("") + `</div>`;
   $("#legende").innerHTML = COULEURS.map(c => `<span class="case" style="background:${c}"></span>`).join("")
     + `<div class="graduations">${SEUILS.map(s => `<span><i>${s}</i></span>`).join("")}<span></span></div>`;
-  const NOMS_REGIONS = { "poitou-charentes": "Poitou-Charentes", "aquitaine": "Aquitaine", "pays-de-la-loire": "Pays de la Loire" };
+  const NOMS_REGIONS = { "poitou-charentes": "Poitou-Charentes", "aquitaine": "Aquitaine", "pays-de-la-loire": "Pays de la Loire",
+    "guadeloupe": "Guadeloupe", "martinique": "Martinique", "guyane": "Guyane", "reunion": "La Réunion", "mayotte": "Mayotte" };
   const regions = index.sources.map(s => s.replace(".parquet", "")).map(s => NOMS_REGIONS[s] || s);
   $("#meta").textContent = `Extraits Geofabrik ${regions.join(", ")} ; tuiles générées le ${index.genere.slice(0, 10).split("-").reverse().join("/")}.`;
   afficherCouverture(null);

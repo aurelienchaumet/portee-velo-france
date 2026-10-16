@@ -10,7 +10,6 @@ Usage (depuis france/) : .venv/Scripts/python.exe -I -X utf8 chefs_lieux.py
 """
 import csv
 import json
-import re
 import sys
 from pathlib import Path
 
@@ -19,36 +18,13 @@ import shapely.geometry
 
 ICI = Path(__file__).resolve().parent
 sys.path[:0] = [str(ICI)]
+from lieux import choisir_mairie  # noqa: E402  (commun avec le départ par défaut de tuiler.py)
 from tuiler import connecter  # noqa: E402  (extension spatial sur D:)
 
 COG = ICI / "cache" / "v_departement.csv"
 PARQUETS = str(ICI / "cache" / "regions" / "*.parquet")
 SORTIE = ICI / "chefs_lieux.json"
 CONTOURS = ICI / "tuiles" / "departements.json"
-
-
-def choisir_mairie(candidats):
-    """candidats : liste de (tags, géométrie). Renvoie (géométrie, raison).
-
-    Dans les grandes villes il y a plusieurs mairies (arrondissements, annexes, quartiers) : on veut la
-    mairie centrale. Ordre : nom « hôtel de ville », townhall:type=city, nom « mairie » sans mention
-    d'annexe / arrondissement / quartier / secteur, puis le plus grand bâtiment.
-    """
-    def rang(c):
-        tags, g = c
-        nom = (tags.get("name") or "").lower()
-        secondaire = bool(re.search(r"annexe|antenne|direction|arrondissement|quartier|secteur|\d+(e|er|ème)|délégu", nom))
-        # Le nom passe avant townhall:type=city, parfois posé sur des mairies de quartier (Nantes Chantenay)
-        return (bool(re.search(r"h[ôo]tel[ -]de[ -]ville", nom)) and not secondaire,
-                tags.get("townhall:type") == "city" and not secondaire,
-                bool(re.search(r"mairie", nom)) and not secondaire,
-                not secondaire,
-                g.area)
-    meilleur = max(candidats, key=rang)
-    r = rang(meilleur)
-    raison = ("hôtel de ville" if r[0] else "townhall:type=city" if r[1] else "mairie" if r[2]
-              else "plus grand (aucun nom clair)")
-    return meilleur[1], f"{raison} : {meilleur[0].get('name', 'sans nom')}"
 
 
 def main():
