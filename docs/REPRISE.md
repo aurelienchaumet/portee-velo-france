@@ -87,7 +87,11 @@ l'accessibilité arrivera (phase 6).
 - Contrôlé dans le conteneur : `wrangler deploy --dry-run`, `wrangler dev` (page, tuiles, CORS, 404 hors site),
   page du 17 et de la Martinique servie par wrangler dans Chromium.
 
-**À faire par Aurélien** (une fois) :
+**En ligne le 16/10/2026** : https://portee-velo.aurelienchaumet17.workers.dev (premier déploiement par
+`deployer.yml` lancé à la main, 2 017 fichiers envoyés). `workers.dev` est bloqué depuis les sessions cloud :
+le contrôle visuel du site publié se fait depuis un navigateur.
+
+Mise en place faite (pour mémoire) :
 1. Créer un compte Cloudflare (gratuit, sans carte) ; dans Workers & Pages, choisir le sous-domaine
    `<nom>.workers.dev`.
 2. Jeton d'API : My Profile → API Tokens → Create Token → modèle « Edit Cloudflare Workers ».
