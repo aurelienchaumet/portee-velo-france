@@ -170,4 +170,10 @@ Reste (phase 4) : contrôle visuel du site en ligne par Aurélien.
   4 × 4 sous-points (et non 10 × 10 : 230 M points en métropole). Page : `chargerAccesBlocs`, blocs de la fenêtre.
 - Étape « Équipements et habitants » de `tuiler.yml` (`"acces": true`), `continue-on-error` comme les croisements.
 
+**Fait (run 38965409395, 16/10 22 h 15 UTC, déployé)** : re-tuilage complet avec bit RD, croisements et services.
+Métropole : croisements 296 605 (27 208 avec une RD) en 419 blocs, 16 min, 12 Mo ; services 2,7 M équipements,
+62,6 M habitants (Filosofi : tous retrouvés sur les cellules), 437 blocs, 151 Mo, 1 min, 7,7 Go de RAM (BPE lue
+en entier : 5,2 Go même pour un DROM). Plus gros bloc : Paris `acces/15_7.json`, 6 Mo (compressé par Cloudflare).
+Contrôle local à Paris : Services → 1,16 M habitants à 15 min, 9 fonctions sur 9, pas d'erreur.
+
 Phases suivantes : voir la spec (§7) — diagnostics par EPCI et par commune, BD TOPO pour les RD.
