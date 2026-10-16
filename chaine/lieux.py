@@ -15,6 +15,7 @@ import shapely
 # sur quoi (« sur la Charente-Maritime »). Les départements métropolitains viendront avec la phase 4 (article
 # et genre d'après le COG de l'INSEE) ; à défaut, formes neutres construites sur le nom OSM.
 FORMES = {
+    "fr":  ("en France métropolitaine", "de la France métropolitaine", "sur la France métropolitaine"),
     "17":  ("en Charente-Maritime", "de la Charente-Maritime", "sur la Charente-Maritime"),
     "971": ("en Guadeloupe", "de la Guadeloupe", "sur la Guadeloupe"),
     "972": ("en Martinique", "de la Martinique", "sur la Martinique"),

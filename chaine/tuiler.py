@@ -89,6 +89,21 @@ def tuiles_des_emprises(emprises):
     return tuiles
 
 
+def tuiles_du_contour(chemin, marge_km):
+    """Tuiles qui touchent un contour GeoJSON (FeatureCollection, ou contour.json de ce dépôt ; WGS84) élargi de
+    marge_km : la métropole sans la mer ni les pays voisins (tuiles/departements.json)."""
+    gj = json.loads(Path(chemin).read_text("utf-8"))
+    geoms = [shapely.geometry.shape(f["geometry"]) for f in gj["features"]] if "features" in gj \
+        else [shapely.geometry.shape(gj.get("geometrie", gj))]
+    zone = shapely.union_all(shapely.make_valid(geoms))
+    w, s, e, n = zone.bounds
+    zone = zone.buffer(marge_km / (111.32 * math.cos(math.radians((s + n) / 2))))   # en degrés, à peu près
+    shapely.prepare(zone)
+    lt, ht = DLON * CELLULES_TUILE, DLAT * CELLULES_TUILE
+    return {(tx, ty) for tx, ty in tuiles_des_emprises([zone.bounds])
+            if zone.intersects(shapely.box(LON0 + tx * lt, LAT0 - (ty + 1) * ht, LON0 + (tx + 1) * lt, LAT0 - ty * ht))}
+
+
 def zone_wkt(boites):
     """Union de boîtes (lon_min, lat_min, lon_max, lat_max) en WKT, pour filtrer DuckDB en une seule requête."""
     return shapely.union_all([shapely.box(*b) for b in boites]).wkt
@@ -376,6 +391,24 @@ def ecrire_contour_departement(con, parquets, code, marge_km, sortie, vers_metre
     return (w - dlon, s - dlat, e + dlon, n + dlat)
 
 
+def ecrire_contour_zone(chemin, code, marge_km, sortie, vers_metres):
+    """contour.json d'un territoire tuilé avec --contour (métropole) : union des contours, simplifiée à ~500 m ;
+    nom de la grille (TERRITOIRES), départ par défaut = chef-lieu de Paris (chefs_lieux.json), sinon aucun."""
+    gj = json.loads(Path(chemin).read_text("utf-8"))
+    geoms = [shapely.geometry.shape(f["geometry"]) for f in gj["features"]] if "features" in gj \
+        else [shapely.geometry.shape(gj.get("geometrie", gj))]
+    zone = nettoyer_contour(shapely.simplify(shapely.union_all(shapely.make_valid(geoms)), 0.005), vers_metres)
+    nom = TERRITOIRES[code]["nom"]
+    chefs = ICI / "chefs_lieux.json"
+    paris = next((c for c in json.loads(chefs.read_text("utf-8")) if c["dep"] == "75"), None) if chefs.exists() else None
+    depart = {k: paris[k] for k in ("commune", "lon", "lat", "choix")} if paris else None
+    sortie.mkdir(parents=True, exist_ok=True)
+    (sortie / "contour.json").write_text(json.dumps({
+        "code": code, "nom": nom, **formes(code, nom), "margeKm": marge_km, "depart": depart,
+        "geometrie": shapely.geometry.mapping(shapely.set_precision(zone, 0.0001))}, ensure_ascii=False), "utf-8")
+    print(f"{nom} : contour écrit ({len(getattr(zone, 'geoms', [zone]))} parties)")
+
+
 def ecrire_controle(chemin, n, a, b, l_dm, attr):
     """Empreinte du graphe avant découpage : le recollage de toutes les tuiles doit la retrouver à l'identique.
 
@@ -617,6 +650,8 @@ def main():
                     help="grille du territoire (fr = métropole, 971 à 976 = DROM)  ; --sortie ../tuiles/<grille>)")
     ap.add_argument("--departement", help="code du département (ex. 17) : emprise = contour OSM + marge, contour écrit dans la sortie")
     ap.add_argument("--marge-km", type=float, default=25, help="marge autour du département (défaut 25 km)")
+    ap.add_argument("--contour", help="GeoJSON (ex. ../tuiles/departements.json) : tuiles qui touchent ce contour "
+                                      "élargi de --marge-km (métropole, phase 4)")
     ap.add_argument("--chefs-lieux", help="chefs_lieux.json : ajoute une emprise de --rayon-km autour de chaque mairie")
     ap.add_argument("--rayon-km", type=float, default=8, help="demi-côté de l'emprise autour d'une mairie (défaut 8 km)")
     ap.add_argument("--sortie", default=str(ICI.parent / "tuiles"), help="dossier des tuiles (défaut : tuiles/ du site, dossier parent)")
@@ -647,12 +682,16 @@ def main():
             dlat = args.rayon_km / 111.32
             dlon = args.rayon_km / (111.32 * math.cos(math.radians(c["lat"])))
             emprises.append((c["lon"] - dlon, c["lat"] - dlat, c["lon"] + dlon, c["lat"] + dlat))
-    if not emprises:
-        ap.error("--emprise, --departement ou --chefs-lieux requis")
+    tuiles_contour = tuiles_du_contour(args.contour, args.marge_km) if args.contour else set()
+    if args.contour and not args.departement:
+        ecrire_contour_zone(args.contour, args.grille, args.marge_km, sortie, Transformer.from_crs(4326, EPSG, always_xy=True))
+    if not emprises and not tuiles_contour:
+        ap.error("--emprise, --departement, --contour ou --chefs-lieux requis")
     # La grille part de son coin nord-ouest : une emprise au nord ou à l'ouest donnerait des numéros de tuile négatifs
-    if min(e[0] for e in emprises) < LON0 or max(e[3] for e in emprises) > LAT0:
+    if (emprises and (min(e[0] for e in emprises) < LON0 or max(e[3] for e in emprises) > LAT0)) \
+            or any(tx < 0 or ty < 0 for tx, ty in tuiles_contour):
         sys.exit(f"emprise hors de la grille {args.grille} (origine {LON0}, {LAT0}) : déplacer l'origine dans format_tuile.py")
-    tuiles = tuiles_des_emprises(emprises)
+    tuiles = tuiles_des_emprises(emprises) | tuiles_contour
     groupe = groupes_de_tuiles(tuiles)
     groupes = {}
     for t, g in groupe.items():
