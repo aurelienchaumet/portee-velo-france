@@ -74,4 +74,28 @@ Reste (phase 2) : rien de bloquant. À voir : en Guyane, la vue d'ensemble est t
 seul est peuplé) ; habitants absents en Guadeloupe, Guyane et Mayotte (Filosofi) à dire sur la page quand
 l'accessibilité arrivera (phase 6).
 
+## Phase 3 (16/10/2026) : Cloudflare Workers
+
+- `wrangler.jsonc` : Worker `portee-velo`, ressources statiques seules (`dist/`), sous-domaine workers.dev.
+- `deploiement/construire.sh` : `dist/` = `index.html`, `coeur.js`, `LICENSE`, `_headers`, `tuiles/<zone>/`
+  (2 019 fichiers, 40 Mo ; vérifie ≤ 20 000 fichiers et ≤ 25 Mio par fichier). Les anciennes tuiles à la
+  racine de `tuiles/` et `france.html` restent sur GitHub Pages (phase 4).
+- `deploiement/_headers` : CORS et cache d'une heure sur `/tuiles/*`.
+- `index.html` : `<meta name="donnees">` = base d'URL des données (vide = même site).
+- `.github/workflows/deployer.yml` : push sur `france-entiere` touchant le site, à la main, ou appelé par
+  `tuiler.yml` après le commit des tuiles. Sans secrets Cloudflare : s'arrête sans erreur.
+- Contrôlé dans le conteneur : `wrangler deploy --dry-run`, `wrangler dev` (page, tuiles, CORS, 404 hors site),
+  page du 17 et de la Martinique servie par wrangler dans Chromium.
+
+**À faire par Aurélien** (une fois) :
+1. Créer un compte Cloudflare (gratuit, sans carte) ; dans Workers & Pages, choisir le sous-domaine
+   `<nom>.workers.dev`.
+2. Jeton d'API : My Profile → API Tokens → Create Token → modèle « Edit Cloudflare Workers ».
+3. Dans GitHub, Settings → Secrets and variables → Actions : `CLOUDFLARE_API_TOKEN` (le jeton) et
+   `CLOUDFLARE_ACCOUNT_ID` (identifiant du compte, colonne de droite de la page d'accueil Workers).
+4. Lancer le déploiement : Actions → Déploiement → Run workflow n'apparaît qu'une fois le workflow sur `main` ;
+   d'ici là, tout push qui touche le site le déclenche. Le site sera sur `https://portee-velo.<nom>.workers.dev`.
+
+Plus tard : déployer depuis `main` plutôt que `france-entiere` (après fusion), et décider du sort de GitHub Pages.
+
 Phases suivantes : voir la spec (§7).

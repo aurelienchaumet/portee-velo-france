@@ -5,3 +5,7 @@ cache/
 .venv/
 __pycache__/
 CLAUDE.md
+
+# Site construit pour Cloudflare (deploiement/construire.sh)
+dist/
+.wrangler/

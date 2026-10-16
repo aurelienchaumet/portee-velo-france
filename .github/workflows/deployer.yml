@@ -1,0 +1,53 @@
+# Déploiement sur Cloudflare Workers, ressources statiques seules (spec §4, phase 3).
+# Secrets du dépôt : CLOUDFLARE_API_TOKEN (modèle « Edit Cloudflare Workers ») et CLOUDFLARE_ACCOUNT_ID.
+# Sans eux, le job s'arrête sans erreur (rien à déployer tant que le compte n'est pas branché).
+# Déclenché par un push qui touche le site, à la main, ou par tuiler.yml après le commit des tuiles
+# (un push du bot avec GITHUB_TOKEN ne déclenche aucun workflow).
+name: Déploiement
+
+on:
+  push:
+    branches: [france-entiere]
+    paths:
+      - index.html
+      - coeur.js
+      - tuiles/**
+      - deploiement/**
+      - wrangler.jsonc
+      - .github/workflows/deployer.yml
+  workflow_dispatch:
+  workflow_call:
+    secrets:
+      CLOUDFLARE_API_TOKEN:
+        required: false
+      CLOUDFLARE_ACCOUNT_ID:
+        required: false
+
+concurrency:
+  group: deploiement
+  cancel-in-progress: false
+
+jobs:
+  deployer:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - id: secrets
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::notice::Secrets CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID absents : pas de déploiement"
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+      # Tête de la branche (et non le commit déclencheur) : après un tuilage, le commit du bot
+      - uses: actions/checkout@v4
+        if: steps.secrets.outputs.ok == 'true'
+        with:
+          ref: ${{ github.ref_name }}
+      - if: steps.secrets.outputs.ok == 'true'
+        run: ./deploiement/construire.sh
+      - if: steps.secrets.outputs.ok == 'true'
+        run: npx --yes wrangler@4.151.1 deploy

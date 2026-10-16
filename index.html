@@ -3,6 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- Base d'URL des données (tuiles/<zone>/…), phase 3 : vide = même site ; sinon par exemple
+     https://portee-velo.<compte>.workers.dev/ pour une page servie ailleurs (les tuiles y ont l'en-tête CORS) -->
+<meta name="donnees" content="">
 <title>À portée de vélo</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -591,7 +594,8 @@ document.getElementById("replier").addEventListener("click", e => {
   // Territoire de la grille (16/10/2026) : ?zone=974 etc. (DROM), métropole par défaut ; une grille et un dossier
   // de tuiles par territoire (tuiles/<zone>/), la grille est lue dans tuiles.json
   const ZONE = /^(fr|97[1-46])$/.test(new URLSearchParams(location.search).get("zone")) ? new URLSearchParams(location.search).get("zone") : "fr";
-  const DOSSIER = `tuiles/${ZONE}/`;
+  const BASE_DONNEES = (document.querySelector('meta[name="donnees"]')?.content || "").replace(/([^/])$/, "$1/");
+  const DOSSIER = `${BASE_DONNEES}tuiles/${ZONE}/`;
   // Sélecteur de territoire : recharge la page sur l'autre grille (sans le lien de la vue : départ, tronçons…
   // n'ont pas de sens ailleurs). Branché avant le chargement, pour rester utilisable si les données manquent.
   $("#zone").value = ZONE;

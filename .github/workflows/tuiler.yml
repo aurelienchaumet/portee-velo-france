@@ -1,5 +1,6 @@
 # Tuilage sur GitHub Actions (spec §5 : calcul lourd sur Actions, serveur de Marennes en secours).
-# Déclenché par un push qui modifie chaine/a_tuiler.json (ou ce fichier), ou à la main (une fois sur main).
+# Déclenché par un push qui modifie chaine/a_tuiler.json, ou à la main (une fois sur main). Déploie ensuite
+# sur Cloudflare (deployer.yml).
 # Un job par tuilage (matrice lue dans a_tuiler.json), puis un job qui recopie les tuiles et les pousse en
 # commit sur la branche (le push avec GITHUB_TOKEN ne relance pas de workflow).
 name: Tuilage
@@ -7,8 +8,7 @@ name: Tuilage
 on:
   push:
     paths:
-      - chaine/a_tuiler.json
-      - .github/workflows/tuiler.yml
+      - chaine/a_tuiler.json     # seul déclencheur : modifier le workflow ne relance pas les tuilages
   workflow_dispatch:
 
 permissions:
@@ -101,3 +101,10 @@ jobs:
           git commit -m "Tuiles recalculées par GitHub Actions ($(jq -r '[.tuilages[].nom] | join(", ")' chaine/a_tuiler.json))"
           for i in 1 2 3 4; do git pull --rebase origin "$GITHUB_REF_NAME" && git push origin "HEAD:$GITHUB_REF_NAME" && exit 0; sleep $((2 ** i)); done
           exit 1
+
+  # Les tuiles poussées par le bot ne déclenchent pas deployer.yml : on l'appelle ici
+  deployer:
+    needs: pousser
+    if: ${{ !cancelled() && needs.pousser.result == 'success' }}
+    uses: ./.github/workflows/deployer.yml
+    secrets: inherit
