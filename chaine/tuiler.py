@@ -68,6 +68,7 @@ EAU_MIN_M2 = 10_000
 MER_PRO_MAX_M = 300            # cellule en mer : garde son nœud s'il est à moins de 300 m (ponts, jetées)            # plans d'eau de plus de 1 ha retirés de la terre
 CARRE_TRI_DEG = (0.0125, 0.009)  # carré de ~1 km pour l'ordre spatial des nœuds dans une tuile
 M_PAR_DEG = 111_320
+ILE_MIN_M = 5_000              # réseau séparé gardé s'il totalise 5 km de voies (îles sans pont), sinon écarté
 
 
 def connecter():
@@ -295,18 +296,32 @@ def groupes_de_tuiles(tuiles):
     return groupe
 
 
-def garder_composantes(nb, a, b, groupe_noeud):
-    """Masque des arêtes à garder : par groupe de tuiles, la plus grande composante connexe."""
+def longueurs_m(noeuds, a, b):
+    """Longueur de chaque arête (a, b) en mètres (approximation équirectangulaire, comme l'écriture des tuiles)."""
+    return np.hypot((noeuds[a, 0] - noeuds[b, 0]) * np.cos(np.radians(noeuds[a, 1])), noeuds[a, 1] - noeuds[b, 1]) * M_PAR_DEG
+
+
+def composantes_iles(comp, a, long_m):
+    """Composantes dont le réseau totalise au moins ILE_MIN_M : îles sans pont (Marie-Galante, Les Saintes,
+    Belle-Île, Petite-Terre…), gardées en plus de la principale ; les petits bouts isolés restent écartés."""
+    total = np.bincount(comp[a], weights=long_m, minlength=comp.max() + 1 if len(comp) else 0)
+    return set(np.nonzero(total >= ILE_MIN_M)[0].tolist())
+
+
+def garder_composantes(nb, a, b, groupe_noeud, long_m):
+    """Masque des arêtes à garder : par groupe de tuiles, la plus grande composante connexe, plus les réseaux
+    séparés d'au moins ILE_MIN_M (îles)."""
     m = coo_matrix((np.ones(len(a)), (a, b)), shape=(nb, nb))
     _, comp = connected_components(m, directed=False)
     utilises = np.zeros(nb, bool)
     utilises[a] = utilises[b] = True
-    garder_comp = set()
+    garder_comp = composantes_iles(comp, a, long_m)
     for g in np.unique(groupe_noeud[utilises]):
         dans = utilises & (groupe_noeud == g)
         valeurs, effectifs = np.unique(comp[dans], return_counts=True)
         garder_comp.add(valeurs[np.argmax(effectifs)])
-        print(f"  zone {g} : {len(valeurs)} composantes, la principale regroupe {effectifs.max() / effectifs.sum():.1%} des nœuds")
+        print(f"  zone {g} : {len(valeurs)} composantes, la principale regroupe {effectifs.max() / effectifs.sum():.1%} "
+              f"des nœuds ; {len(garder_comp)} gardées (îles de {ILE_MIN_M / 1000:g} km de voies ou plus)")
     ok = np.isin(comp, list(garder_comp))
     return ok[a] & ok[b]
 
@@ -436,15 +451,17 @@ def cle_noeud(xy):
     return (q[:, 0] << 32) ^ (q[:, 1] & 0xFFFFFFFF)
 
 
-def garder_composantes_bande(nb, a, b, halo_noeud):
-    """Masque des arêtes à garder dans une bande : la plus grande composante, plus toute composante qui touche le
-    halo (elle peut rejoindre le réseau principal hors de la bande : la couper créerait un trou au raccord)."""
+def garder_composantes_bande(nb, a, b, halo_noeud, long_m):
+    """Masque des arêtes à garder dans une bande : la plus grande composante, les îles (composantes_iles), plus
+    toute composante qui touche le halo (elle peut rejoindre le réseau principal hors de la bande : la couper
+    créerait un trou au raccord)."""
     m = coo_matrix((np.ones(len(a)), (a, b)), shape=(nb, nb))
     _, comp = connected_components(m, directed=False)
     utilises = np.zeros(nb, bool)
     utilises[a] = utilises[b] = True
     valeurs, effectifs = np.unique(comp[utilises], return_counts=True)
-    garder = {valeurs[np.argmax(effectifs)]} | set(np.unique(comp[utilises & halo_noeud]).tolist())
+    garder = ({valeurs[np.argmax(effectifs)]} | set(np.unique(comp[utilises & halo_noeud]).tolist())
+              | composantes_iles(comp, a, long_m))
     print(f"  bande : {len(valeurs)} composantes, {len(garder)} gardées (principale : {effectifs.max() / effectifs.sum():.1%})")
     ok = np.isin(comp, list(garder))
     return ok[a] & ok[b]
@@ -502,10 +519,10 @@ def traiter_groupe(con, source, tuiles, base0, masque, vers_l93, sortie, control
         propre = np.zeros(0, bool)
     elif not halo:
         # Plus grande composante connexe du groupe (comme build_graph_velo.py)
-        garde = garder_composantes(len(noeuds), a, b, np.zeros(len(noeuds), np.int64))
+        garde = garder_composantes(len(noeuds), a, b, np.zeros(len(noeuds), np.int64), longueurs_m(noeuds, a, b))
         a, b, attr = a[garde], b[garde], attr[garde]
     else:
-        garde = garder_composantes_bande(len(noeuds), a, b, dans & ~propre)
+        garde = garder_composantes_bande(len(noeuds), a, b, dans & ~propre, longueurs_m(noeuds, a, b))
         a, b, attr = a[garde], b[garde], attr[garde]
 
     # Nœuds du réseau aménagé (pistes, bandes…), marqués avant d'écarter les arêtes laissées à la bande suivante

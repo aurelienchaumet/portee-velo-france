@@ -128,6 +128,12 @@ Plus tard : déployer depuis `main` plutôt que `france-entiere` (après fusion)
 - Poids d'une fenêtre de 5 × 5 tuiles : Paris 8,1 Mo, Marseille 3,5 Mo, La Rochelle 1,7 Mo. **À mesurer sur
   téléphone à Paris** avant de décider d'alléger les tuiles (contraction des nœuds de degré 2).
 
+- Îles sans pont (16/10 soir, signalé par Aurélien en Guadeloupe) : `tuiler.py` ne gardait que la plus grande
+  composante → Marie-Galante, Les Saintes, La Désirade, Petite-Terre, Yeu, Belle-Île, Ouessant, Groix… sans
+  calcul. Désormais : + toute composante de `ILE_MIN_M` (5 km) de voies ou plus. Tout re-tuilé (DROM + métropole).
+- Essai `?fenetre=7` (7 × 7 tuiles, `index.html`) : la zone d'une heure était coupée à Paris pendant le survol
+  (fenêtre tolérée à ±1 tuile du départ, ~10 km de marge). À trancher après le test d'Aurélien sur téléphone.
+
 Reste (phase 4) : contrôle visuel du site en ligne par Aurélien ; choroplèthe des 101 chefs-lieux
 (`france.html`, anciennes tuiles à la racine de `tuiles/`) à refaire sur les tuiles nationales.
 
