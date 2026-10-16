@@ -25,6 +25,7 @@ import argparse
 import json
 import math
 import pickle
+import re
 import sys
 import time
 from datetime import datetime
@@ -68,6 +69,18 @@ EAU_MIN_M2 = 10_000
 MER_PRO_MAX_M = 300            # cellule en mer : garde son nœud s'il est à moins de 300 m (ponts, jetées)            # plans d'eau de plus de 1 ha retirés de la terre
 CARRE_TRI_DEG = (0.0125, 0.009)  # carré de ~1 km pour l'ordre spatial des nœuds dans une tuile
 M_PAR_DEG = 111_320
+# Routes départementales (bit 15 de attr, lu par coeur.js dans P.rd : mode « Sans départementales », case
+# « Départementales », croisements) : tag ref d'OSM (« D 735 », « RD 41 », « D 12;D 45 »), sur les rues et routes
+# seulement (pistes, bandes et chemins jamais RD), comme marquer_rd.py. La BD TOPO (spec §3) viendra le préciser.
+CLASSES_RD = (2, 3, 4, 5, 7)
+REF_RD = re.compile(r"(?:^|;)\s*R?D\s?\d", re.IGNORECASE)
+
+
+def est_departementale(tags):
+    """Route départementale d'après OSM : ref commençant par D (ou RD) suivi d'un numéro."""
+    return bool(REF_RD.search(tags.get("ref") or ""))
+
+
 ILE_MIN_M = 5_000              # réseau séparé gardé s'il totalise 5 km de voies (îles sans pont), sinon écarté
 
 
@@ -151,7 +164,7 @@ def lire_voies(con, source, boites):
         if r[0] == 1:
             rr = classer_fin({k: v for k, v in tags.items() if k not in CLES_CYCLEWAY + ("bicycle_road", "cyclestreet")})
             route = rr[0] if rr else -1
-        voies.append((np.asarray(g.coords)[:, :2], *r, route))
+        voies.append((np.asarray(g.coords)[:, :2], *r, route, int(r[0] in CLASSES_RD and est_departementale(tags))))
     print(f"  {len(voies)} voies cyclables, {ecartees} écartées par classer()")
     return voies
 
@@ -172,15 +185,15 @@ def densifier(xy):
 
 
 def construire_graphe(voies):
-    """Nœuds (lon, lat en degrés) et arêtes (a, b, [classe, vitesse, sens, route]) à partir des tracés."""
+    """Nœuds (lon, lat en degrés) et arêtes (a, b, [classe, vitesse, sens, route, rd]) à partir des tracés."""
     pts, ea, attrs = [], [], []
     debut = 0
-    for xy, classe, vit, sens, route in voies:
+    for xy, classe, vit, sens, route, *rd in voies:
         xy = densifier(xy)
         n = len(xy)
         pts.append(xy)
         ea.append(np.arange(debut, debut + n - 1))
-        attrs.append(np.repeat([[classe, vit, sens, route]], n - 1, axis=0))
+        attrs.append(np.repeat([[classe, vit, sens, route, rd[0] if rd else 0]], n - 1, axis=0))
         debut += n
     pts = np.vstack(pts)
     # Clé de nœud : coordonnées entières au 1e-7 degré (précision native des PBF)
@@ -220,7 +233,7 @@ def integrer_collectivites(noeuds, a, b, attr, coll, vers_l93):
     ids = np.unique(np.concatenate([a[sel], b[sel]]))
     coords = {int(i): (float(noeuds[i, 0]), float(noeuds[i, 1])) for i in ids}
     sous = [(int(u), int(v), int(c), int(vt), int(sn), 0, 0, None)
-            for u, v, (c, vt, sn, _r) in zip(a[sel].tolist(), b[sel].tolist(), attr[sel].tolist())]
+            for u, v, (c, vt, sn, *_r) in zip(a[sel].tolist(), b[sel].tolist(), attr[sel].tolist())]
     vers_wgs = Transformer.from_crs(EPSG, 4326, always_xy=True)
     integrer_reseau(chemin, sous, coords, lambda nom: 0, vers_l93, vers_wgs)
     # 3. Nœuds créés (ids négatifs -1, -2, …) numérotés à la suite des nœuds existants
@@ -230,7 +243,7 @@ def integrer_collectivites(noeuds, a, b, attr, coll, vers_l93):
         noeuds = np.vstack([noeuds, np.array([coords[k] for k in nouveaux], dtype=float)])
     sa = np.array([num.get(e[0], e[0]) for e in sous], dtype=np.int64)
     sb = np.array([num.get(e[1], e[1]) for e in sous], dtype=np.int64)
-    sattr = np.array([[e[2], e[3], e[4], -1] for e in sous], dtype=np.int64).reshape(-1, 4)
+    sattr = np.array([[e[2], e[3], e[4], -1, 0] for e in sous], dtype=np.int64).reshape(-1, attr.shape[1])
     return noeuds, np.concatenate([a[~sel], sa]), np.concatenate([b[~sel], sb]), np.vstack([attr[~sel], sattr])
 
 
@@ -578,7 +591,8 @@ def traiter_groupe(con, source, tuiles, base0, masque, vers_l93, sortie, control
     lon, lat, k_tuile = lon[tri], lat[tri], k_tuile[tri]
     l_dm = np.maximum(1, np.round(longueur * 10)).astype(np.int64)
     classe, vit, sens = attr[:, 0], attr[:, 1], attr[:, 2]
-    attr_code = classe | (sens << 3) | (vit << 5)
+    rd = attr[:, 4] if attr.shape[1] > 4 else np.zeros(len(attr), np.int64)
+    attr_code = classe | (sens << 3) | (vit << 5) | (rd << 15)      # bit 15 : départementale (coeur.js → P.rd)
     print(f"  graphe : {len(lon)} nœuds, {len(a)} arêtes, {longueur.sum() / 1000:.0f} km")
     if controle is not None:
         controle.append((len(lon), a + base0, b_abs, l_dm, attr_code))

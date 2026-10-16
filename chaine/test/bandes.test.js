@@ -26,7 +26,7 @@ function aretes(P) {
   for (let e = 0; e < P.m; e++) {
     let [a, b, s] = [cle(P.a[e]), cle(P.b[e]), P.sens[e]];
     if (a > b) { [a, b] = [b, a]; s = s === 1 ? 2 : s === 2 ? 1 : s; }
-    liste.push(`${a}>${b}|${Math.round(P.lm[e] * 10)}|${P.cls[e]}|${s}|${P.vit[e]}`);
+    liste.push(`${a}>${b}|${Math.round(P.lm[e] * 10)}|${P.cls[e]}|${s}|${P.vit[e]}|${P.rd[e]}`);
   }
   return liste.sort();
 }
@@ -37,6 +37,10 @@ test("bandes : même graphe recollé qu'un tuilage d'un bloc", async () => {
   assert.equal(bandes.n, bloc.n);
   assert.equal(bandes.m, bloc.m);
   assert.deepEqual(aretes(bandes), aretes(bloc));
+  // Départementales (bit 15, tuiler.py) : présentes et lues par recollerTuiles dans P.rd
+  const nRd = P => P.rd.reduce((n, v) => n + v, 0);
+  assert.ok(nRd(bloc) > 100, `${nRd(bloc)} arêtes départementales`);
+  assert.equal(nRd(bandes), nRd(bloc));
 });
 
 test("bandes : mêmes minutes par cellule depuis un départ à cheval sur un raccord", async () => {

@@ -5,7 +5,7 @@ près : la numérotation diffère). Pas de DuckDB : lire_voies() et le masque te
 
 Réseau : quadrillage de rues toutes les 0,01° (sommets tous les 0,0025°), sur 3 × 7 tuiles de la grille
 métropole, avec des sens uniques dans les deux sens de tracé (les arêtes retournées aux raccords doivent
-garder le bon sens) et des classes et vitesses variées.
+garder le bon sens), des classes et vitesses variées et des départementales (bit 15).
 
 Usage (depuis chaine/) : python -I -X utf8 test/fabriquer_bandes.py
 """
@@ -43,7 +43,8 @@ def voies_synthetiques():
     voies, k = [], 0
     for x in xs:                                  # rues nord-sud, tracées du sud au nord
         y = np.round(np.arange(ys[0], ys[-1] + 1e-9, sommet), 7)
-        voies.append((np.column_stack([np.full(len(y), x), y]), k % 4 + 1, 10 + k % 15, k % 3, -1))
+        # Une rue nord-sud sur cinq est une départementale (bit 15) : la marque doit traverser les raccords
+        voies.append((np.column_stack([np.full(len(y), x), y]), k % 4 + 2, 10 + k % 15, k % 3, -1, int(k % 5 == 0)))
         k += 1
     for y in ys:                                  # rues est-ouest, une sur deux tracée d'est en ouest
         x = np.round(np.arange(xs[0], xs[-1] + 1e-9, sommet), 7)
