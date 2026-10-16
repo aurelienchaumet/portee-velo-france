@@ -240,9 +240,10 @@ button:focus-visible,input:focus-visible,.leaflet-marker-icon:focus-visible{outl
 .depart .suggestions{max-height:40vh;overflow-y:auto}
 @media (max-width:720px){.depart{padding:8px 18px}}
 .outils{position:absolute;top:14px;right:14px;display:flex;gap:4px}
-.outils button{display:grid;place-items:center;width:34px;height:34px;border:0;border-radius:8px;background:transparent;color:#c9edf5;cursor:pointer}
-.outils button:hover{background:rgba(255,255,255,.12);color:#fff}
+.outils button,.outils a{display:grid;place-items:center;width:34px;height:34px;border:0;border-radius:8px;background:transparent;color:#c9edf5;cursor:pointer}
+.outils button:hover,.outils a:hover{background:rgba(255,255,255,.12);color:#fff}
 .outils svg{width:19px;height:19px}
+.outils a{text-decoration:none}
 /* Sélecteur de territoire (phase 2, 16/10/2026) : métropole (le 17 pour l'instant) et les 5 DROM */
 .choix-zone{display:block;margin:.5rem 0 0}
 .choix-zone select{font:500 .85rem var(--sans);color:#fff;background:rgba(255,255,255,.1);border:1px solid rgba(201,237,245,.45);border-radius:8px;padding:5px 8px;max-width:100%;cursor:pointer}
@@ -349,6 +350,9 @@ dialog.apropos .fermer{position:absolute;top:10px;right:10px;width:34px;height:3
     <p>Jusqu'où va-t-on à vélo depuis chaque point du territoire, et dans quel confort, d'après OpenStreetMap</p>
     <!-- Lien et crédits en icônes (13/10/2026) : ils tenaient le bas de chaque onglet -->
     <div class="outils">
+      <a href="classement.html" id="vers-classement" title="Classement des départements" aria-label="Classement des départements">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 20V11"/><path d="M12 20V5"/><path d="M19 20v-6"/></svg>
+      </a>
       <button type="button" id="partager" title="Copier le lien de cette vue" aria-label="Copier le lien de cette vue">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.07 0l3-3a5 5 0 0 0-7.07-7.07l-1.5 1.5"/><path d="M14 11a5 5 0 0 0-7.07 0l-3 3a5 5 0 0 0 7.07 7.07l1.5-1.5"/></svg>
       </button>

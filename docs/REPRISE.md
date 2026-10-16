@@ -15,6 +15,12 @@ données des collectivités (CCIO, CCBM, geosir) ni de diagnostics du SIT.
 - Calculs lourds : GitHub Actions (serveur de Marennes seulement en secours).
 - Commits : seule la ligne `Co-Authored-By`, pas de lien de session.
 
+## Mandat de nuit (16/10/2026, Aurélien)
+
+Aller au bout du plan sans attendre son aval : phase 4 (îles, carte des chefs-lieux), phase 5 (BD TOPO, croisements),
+puis phase 6 si possible. Mise en ligne au fil de l'eau (chaque étape vérifiée). Interdit sans accord explicite :
+toucher à `main`, supprimer GitHub Pages, la release ou `france.html`. Choix de fond : option prudente, notée ici.
+
 ## Fait
 
 - Phase 0 : chaîne et page reprises du SIT, `node --test chaine/test/*.test.js` → 60 tests au vert
