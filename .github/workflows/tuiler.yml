@@ -75,7 +75,7 @@ jobs:
           if [ "$(jq -r '.departement // empty' <<< "$T")" ]; then
             zone=(--departement "$(jq -r .departement <<< "$T")" --marge-km "$(jq -r .marge_km <<< "$T")")
           else
-            zone=(); for e in $(jq -r '.emprises[]' <<< "$T"); do zone+=(--emprise "$e"); done
+            zone=(); for e in $(jq -r '.emprises[]' <<< "$T"); do zone+=("--emprise=$e"); done   # « = » : sinon « -5.15,… » est pris pour une option
           fi
           # /usr/bin/time -v : mémoire maximale, pour extrapoler à la métropole (phase 4)
           /usr/bin/time -v -o ../mesure.txt python -I -X utf8 tuiler.py --grille "$(jq -r .grille <<< "$T")" \
