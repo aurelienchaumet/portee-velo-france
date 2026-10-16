@@ -105,7 +105,13 @@ def tuiles_du_contour(chemin, marge_km):
 
 
 def zone_wkt(boites):
-    """Union de boîtes (lon_min, lat_min, lon_max, lat_max) en WKT, pour filtrer DuckDB en une seule requête."""
+    """Union de boîtes (lon_min, lat_min, lon_max, lat_max) en WKT, pour filtrer DuckDB en une seule requête.
+    Au-delà de 100 boîtes, leur rectangle englobant : l'union de milliers de tuiles (métropole) est un polygone
+    de milliers de sommets, très lent à tester sur chaque voie ; ce qui est lu en trop est écarté ensuite
+    (nœuds hors des tuiles, plans d'eau hors des cellules), le résultat ne change pas."""
+    if len(boites) > 100:
+        return shapely.box(min(b[0] for b in boites), min(b[1] for b in boites),
+                           max(b[2] for b in boites), max(b[3] for b in boites)).wkt
     return shapely.union_all([shapely.box(*b) for b in boites]).wkt
 
 
@@ -393,7 +399,8 @@ def ecrire_contour_departement(con, parquets, code, marge_km, sortie, vers_metre
 
 def ecrire_contour_zone(chemin, code, marge_km, sortie, vers_metres):
     """contour.json d'un territoire tuilé avec --contour (métropole) : union des contours, simplifiée à ~500 m ;
-    nom de la grille (TERRITOIRES), départ par défaut = chef-lieu de Paris (chefs_lieux.json), sinon aucun."""
+    nom de la grille (TERRITOIRES), départ par défaut = chef-lieu de Paris, departs = les 96 chefs-lieux
+    (chefs_lieux.json), parmi lesquels la page tire au sort."""
     gj = json.loads(Path(chemin).read_text("utf-8"))
     geoms = [shapely.geometry.shape(f["geometry"]) for f in gj["features"]] if "features" in gj \
         else [shapely.geometry.shape(gj.get("geometrie", gj))]
@@ -402,9 +409,12 @@ def ecrire_contour_zone(chemin, code, marge_km, sortie, vers_metres):
     chefs = ICI / "chefs_lieux.json"
     paris = next((c for c in json.loads(chefs.read_text("utf-8")) if c["dep"] == "75"), None) if chefs.exists() else None
     depart = {k: paris[k] for k in ("commune", "lon", "lat", "choix")} if paris else None
+    # La page tire au sort l'un de ces départs à chaque visite (mairies des chefs-lieux des 96 départements)
+    departs = [{k: c[k] for k in ("dep", "departement", "commune", "lon", "lat")}
+               for c in json.loads(chefs.read_text("utf-8"))] if chefs.exists() else []
     sortie.mkdir(parents=True, exist_ok=True)
     (sortie / "contour.json").write_text(json.dumps({
-        "code": code, "nom": nom, **formes(code, nom), "margeKm": marge_km, "depart": depart,
+        "code": code, "nom": nom, **formes(code, nom), "margeKm": marge_km, "depart": depart, "departs": departs,
         "geometrie": shapely.geometry.mapping(shapely.set_precision(zone, 0.0001))}, ensure_ascii=False), "utf-8")
     print(f"{nom} : contour écrit ({len(getattr(zone, 'geoms', [zone]))} parties)")
 

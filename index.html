@@ -338,7 +338,7 @@ dialog.apropos .fermer{position:absolute;top:10px;right:10px;width:34px;height:3
     <h1>À portée de vélo</h1>
     <label class="choix-zone" title="Changer de territoire"><span hidden>Territoire</span>
       <select id="zone" aria-label="Territoire">
-        <option value="fr">Charente-Maritime</option>
+        <option value="fr">Métropole</option>
         <option value="971">Guadeloupe</option>
         <option value="972">Martinique</option>
         <option value="973">Guyane</option>
@@ -620,7 +620,8 @@ document.getElementById("replier").addEventListener("click", e => {
   // Nom du territoire tuilé et ses formes (contour.json, chaine/lieux.py) : plus aucun texte propre au 17
   const LIEU = { nom: contourDep.nom || "", en: contourDep.en || `en ${contourDep.nom}`, de: contourDep.de || `de ${contourDep.nom}`,
     sur: contourDep.sur || `sur ${contourDep.nom}` };
-  LIEU.le = LIEU.sur.replace(/^sur /, "");               // « la Charente-Maritime », « La Réunion », « Mayotte »
+  LIEU.le = LIEU.sur.replace(/^sur /, "");
+  $("#zone").selectedOptions[0].textContent = LIEU.nom;    // « fr » : Charente-Maritime, puis France métropolitaine               // « la Charente-Maritime », « La Réunion », « Mayotte »
   document.title = `À portée de vélo – ${LIEU.nom}`;
   $("#carte").setAttribute("aria-label", `Carte des temps de trajet à vélo ${LIEU.en}`);
   $(".entete p").textContent = `Jusqu'où va-t-on à vélo depuis chaque point ${LIEU.de}, et dans quel confort, d'après OpenStreetMap`;
@@ -708,7 +709,10 @@ document.getElementById("replier").addEventListener("click", e => {
   if (terr) carte.setMinZoom(carte.getZoom() - 0.5);  // pas de dézoom au-delà de la vue d'ensemble du territoire
   // Départ par défaut : mairie de la commune la plus peuplée (contour.json, chaine/lieux.py), à défaut le centre
   // du contour ; sur Marennes-Oléron, celle de Saint-Pierre-d'Oléron
+  // Métropole (contour.json → departs, phase 4) : mairie du chef-lieu d'un département tiré au sort à chaque visite
+  const tirage = !terr && contourDep.departs?.length ? contourDep.departs[Math.floor(Math.random() * contourDep.departs.length)] : null;
   const DEPART_DEFAUT = terr ? L.latLng(45.9443, -1.3063)
+    : tirage ? L.latLng(tirage.lat, tirage.lon)
     : contourDep.depart ? L.latLng(contourDep.depart.lat, contourDep.depart.lon) : contour.getBounds().getCenter();
 
   let toile = null, ctx = null, image = null, chaleur = null;
@@ -2068,6 +2072,8 @@ document.getElementById("replier").addEventListener("click", e => {
   $("#note-mode").textContent = NOTES[etat.mode];
   if (lien.arrivee) { etat.arrivee = lien.arrivee; marqueurArrivee.setLatLng(lien.arrivee).addTo(carte); }
   etat.suivre = survolPossible && (!lien.depart || lien.suivi);
+  // Territoire trop grand pour la vue d'ensemble (métropole) : la carte s'ouvre sur le départ, à l'échelle d'un département
+  if (contourDep.departs?.length && !terr) carte.setView(lien.depart || DEPART_DEFAUT, 10);
   await placerDepart(lien.depart || DEPART_DEFAUT, true);
   suivre(etat.suivre);
   selectionner(-1); majLegendeGain();

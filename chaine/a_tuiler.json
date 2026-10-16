@@ -1,41 +1,38 @@
 {
- "_note": "Tuilages à (re)faire par GitHub Actions (.github/workflows/tuiler.yml) : modifier ce fichier et pousser relance le calcul des seuls tuilages listés ; les tuiles reviennent en commit sur la branche. regions = extraits Geofabrik (europe/france/<region>-latest.osm.pbf). Déjà faits (16/10/2026) : 17 (grille fr, marge 25 km, poitou-charentes + aquitaine + pays-de-la-loire, sortie tuiles/fr) ; 971, 973, 974, 976 (marge 2 km, extrait du même nom : guadeloupe, guyane, reunion, mayotte). 972 relancé le même jour (départ). Un tuilage \"essai\": true n'est pas commité (mesures de RAM et de durée dans le résumé du run) ; \"emprises\" remplace departement/marge_km. \"bande_lignes\" : tuilage par bandes (phase 4) ; \"comparaisons\" : [A, B, \"lon,lat\"…] compare deux tuilages (test/comparer_tuilages.js).",
+ "_note": "Tuilages à (re)faire par GitHub Actions (.github/workflows/tuiler.yml) : modifier ce fichier et pousser relance le calcul des seuls tuilages listés ; les tuiles reviennent en commit sur la branche. regions = extraits Geofabrik (europe/france/<region>-latest.osm.pbf). Déjà faits (16/10/2026) : 17 (grille fr, marge 25 km, poitou-charentes + aquitaine + pays-de-la-loire, sortie tuiles/fr, remplacé par la métropole) ; essai Bretagne d'un bloc et par bandes de 3 (comparaison sous 0,1 %) ; 971, 973, 974, 976 (marge 2 km, extrait du même nom : guadeloupe, guyane, reunion, mayotte). 972 relancé le même jour (départ). Un tuilage \"essai\": true n'est pas commité (mesures de RAM et de durée dans le résumé du run) ; \"emprises\" remplace departement/marge_km. \"bande_lignes\" : tuilage par bandes (phase 4) ; \"comparaisons\" : [A, B, \"lon,lat\"…] compare deux tuilages (test/comparer_tuilages.js). \"contour\" : tuiles qui touchent ce GeoJSON (chemin depuis chaine/) ; \"publication\": \"release\" : tuiles dans la release tuiles-<nom> au lieu du dépôt.",
  "tuilages": [
   {
-   "nom": "bretagne",
+   "nom": "fr",
    "grille": "fr",
-   "emprises": [
-    "-5.15,47.27,-1.0,48.9"
-   ],
+   "contour": "../tuiles/departements.json",
+   "marge_km": 2,
+   "bande_lignes": 5,
+   "publication": "release",
+   "sortie": "tuiles/fr",
    "regions": [
-    "bretagne"
-   ],
-   "essai": true,
-   "sortie": "tuiles/essai-bretagne"
-  },
-  {
-   "nom": "bretagne-bandes",
-   "grille": "fr",
-   "emprises": [
-    "-5.15,47.27,-1.0,48.9"
-   ],
-   "regions": [
-    "bretagne"
-   ],
-   "essai": true,
-   "bande_lignes": 3,
-   "sortie": "tuiles/essai-bretagne-bandes"
+    "alsace",
+    "aquitaine",
+    "auvergne",
+    "basse-normandie",
+    "bourgogne",
+    "bretagne",
+    "centre",
+    "champagne-ardenne",
+    "corse",
+    "franche-comte",
+    "haute-normandie",
+    "ile-de-france",
+    "languedoc-roussillon",
+    "limousin",
+    "lorraine",
+    "midi-pyrenees",
+    "nord-pas-de-calais",
+    "pays-de-la-loire",
+    "picardie",
+    "poitou-charentes",
+    "provence-alpes-cote-d-azur",
+    "rhone-alpes"
+   ]
   }
- ],
- "comparaisons": [
-  [
-   "bretagne",
-   "bretagne-bandes",
-   "-1.6778,48.1173",
-   "-4.4861,48.3904",
-   "-2.7603,47.6582",
-   "-2.7652,48.5141",
-   "-4.1024,47.9960"
-  ]
  ]
 }

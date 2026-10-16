@@ -74,9 +74,13 @@ jobs:
           T: ${{ toJson(matrix.t) }}
         run: |
           rm -rf "../$(jq -r .sortie <<< "$T")"
-          # Emprise : un département et sa marge (contour, nom, départ), ou des boîtes lon_min,lat_min,lon_max,lat_max
+          # Emprise : un département et sa marge (contour, nom, départ), un contour GeoJSON, ou des boîtes
+          # lon_min,lat_min,lon_max,lat_max
           if [ "$(jq -r '.departement // empty' <<< "$T")" ]; then
             zone=(--departement "$(jq -r .departement <<< "$T")" --marge-km "$(jq -r .marge_km <<< "$T")")
+          elif [ "$(jq -r '.contour // empty' <<< "$T")" ]; then
+            # Métropole : tuiles qui touchent les contours des départements (chemin relatif à chaine/)
+            zone=(--contour "$(jq -r .contour <<< "$T")" --marge-km "$(jq -r .marge_km <<< "$T")")
           else
             zone=(); for e in $(jq -r '.emprises[]' <<< "$T"); do zone+=("--emprise=$e"); done   # « = » : sinon « -5.15,… » est pris pour une option
           fi
@@ -123,10 +127,25 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: artefacts
+      # Tuilages "publication": "release" (métropole, ~400 Mo) : hors de l'historique git, dans la release
+      # tuiles-<nom> (un fichier tar, remplacé à chaque tuilage) ; deployer.yml l'y reprend
+      - name: Tuiles → releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for t in $(echo '${{ needs.plan.outputs.matrice }}' | jq -r '.[] | select(.essai != true and .publication == "release") | .nom'); do
+            [ -d "artefacts/tuiles-$t" ] || { echo "::warning::tuilage $t absent (échec ?)"; continue; }
+            tar -cf "tuiles-$t.tar" -C "artefacts/tuiles-$t" .
+            gh release view "tuiles-$t" > /dev/null 2>&1 || gh release create "tuiles-$t" --target "$GITHUB_REF_NAME" \
+              --title "Tuiles $t" --notes "Tuiles du territoire $t, produites par tuiler.yml ; déployées par deployer.yml."
+            gh release upload "tuiles-$t" "tuiles-$t.tar" --clobber
+            echo "Release tuiles-$t : $(du -h "tuiles-$t.tar" | cut -f1)" >> "$GITHUB_STEP_SUMMARY"
+            rm -rf "artefacts/tuiles-$t" "tuiles-$t.tar"
+          done
       - name: Tuiles → dépôt
         run: |
           # Les essais ("essai": true) ne reviennent pas dans le dépôt : mesures seulement
-          for t in $(echo '${{ needs.plan.outputs.matrice }}' | jq -r '.[] | select(.essai != true) | "\(.nom)=\(.sortie)"'); do
+          for t in $(echo '${{ needs.plan.outputs.matrice }}' | jq -r '.[] | select(.essai != true and .publication != "release") | "\(.nom)=\(.sortie)"'); do
             nom=${t%%=*}; sortie=${t#*=}
             [ -d "artefacts/tuiles-$nom" ] || { echo "::warning::tuilage $nom absent (échec ?)"; continue; }
             rm -rf "$sortie" && mkdir -p "$sortie" && cp -r "artefacts/tuiles-$nom/." "$sortie/"

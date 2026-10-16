@@ -23,6 +23,9 @@ on:
       CLOUDFLARE_ACCOUNT_ID:
         required: false
 
+permissions:
+  contents: read
+
 concurrency:
   group: deploiement
   cancel-in-progress: false
@@ -47,6 +50,17 @@ jobs:
         if: steps.secrets.outputs.ok == 'true'
         with:
           ref: ${{ github.ref_name }}
+      # Territoires publiés en release (tuiles-<zone>, métropole) : remplacent tuiles/<zone> du dépôt
+      - if: steps.secrets.outputs.ok == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for tag in $(gh release list --limit 100 --json tagName -q '.[].tagName' | grep '^tuiles-' || true); do
+            zone=${tag#tuiles-}
+            gh release download "$tag" -p "$tag.tar" -O "/tmp/$tag.tar"
+            rm -rf "tuiles/$zone" && mkdir -p "tuiles/$zone" && tar -xf "/tmp/$tag.tar" -C "tuiles/$zone"
+            echo "tuiles/$zone : release $tag ($(ls "tuiles/$zone" | wc -l) fichiers)"
+          done
       - if: steps.secrets.outputs.ok == 'true'
         run: ./deploiement/construire.sh
       - if: steps.secrets.outputs.ok == 'true'
