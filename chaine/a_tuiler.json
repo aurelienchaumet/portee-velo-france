@@ -1,9 +1,6 @@
 {
- "_note": "Tuilages à (re)faire par GitHub Actions (.github/workflows/tuiler.yml) : modifier ce fichier et pousser relance le calcul des seuls tuilages listés ; les tuiles reviennent en commit sur la branche. regions = extraits Geofabrik (europe/france/<region>-latest.osm.pbf). Déjà faits (16/10/2026) : 17 (grille fr, marge 25 km, poitou-charentes + aquitaine + pays-de-la-loire, sortie tuiles/fr) et 974 (marge 2 km, reunion).",
+ "_note": "Tuilages à (re)faire par GitHub Actions (.github/workflows/tuiler.yml) : modifier ce fichier et pousser relance le calcul des seuls tuilages listés ; les tuiles reviennent en commit sur la branche. regions = extraits Geofabrik (europe/france/<region>-latest.osm.pbf). Déjà faits (16/10/2026) : 17 (grille fr, marge 25 km, poitou-charentes + aquitaine + pays-de-la-loire, sortie tuiles/fr) ; 971, 973, 974, 976 (marge 2 km, extrait du même nom : guadeloupe, guyane, reunion, mayotte). 972 relancé : l'ancienne mairie de Fort-de-France était choisie comme départ.",
  "tuilages": [
-  {"nom": "971", "grille": "971", "departement": "971", "marge_km": 2, "sortie": "tuiles/971", "regions": ["guadeloupe"]},
-  {"nom": "972", "grille": "972", "departement": "972", "marge_km": 2, "sortie": "tuiles/972", "regions": ["martinique"]},
-  {"nom": "973", "grille": "973", "departement": "973", "marge_km": 2, "sortie": "tuiles/973", "regions": ["guyane"]},
-  {"nom": "976", "grille": "976", "departement": "976", "marge_km": 2, "sortie": "tuiles/976", "regions": ["mayotte"]}
+  {"nom": "972", "grille": "972", "departement": "972", "marge_km": 2, "sortie": "tuiles/972", "regions": ["martinique"]}
  ]
 }

@@ -52,7 +52,7 @@ def choisir_mairie(candidats):
     def rang(c):
         tags, g = c
         nom = (tags.get("name") or "").lower()
-        secondaire = bool(re.search(r"annexe|antenne|direction|arrondissement|quartier|secteur|\d+(e|er|ème)|délégu", nom))
+        secondaire = bool(re.search(r"annexe|antenne|direction|arrondissement|quartier|secteur|\d+(e|er|ème)|délégu|ancien", nom))   # « Ancienne mairie de Fort-de-France »
         # Le nom passe avant townhall:type=city, parfois posé sur des mairies de quartier (Nantes Chantenay)
         return (bool(re.search(r"h[ôo]tel[ -]de[ -]ville", nom)) and not secondaire,
                 tags.get("townhall:type") == "city" and not secondaire,
