@@ -102,4 +102,28 @@ Mise en place faite (pour mémoire) :
 
 Plus tard : déployer depuis `main` plutôt que `france-entiere` (après fusion), et décider du sort de GitHub Pages.
 
+## Phase 4 (16/10/2026, en cours) : métropole
+
+- Essai Bretagne d'un bloc : 665 tuiles, 5,3 M nœuds, 2,65 Go de RAM, 3 min → la France d'un bloc demanderait
+  ~50 Go (Actions : 16 Go). D'où le **tuilage par bandes** (`tuiler.py --bande-lignes N`, sans changer le format
+  des tuiles ni la page) : chaque bande lit une ligne de tuiles de plus de chaque côté, possède les arêtes vers
+  la bande précédente (retournées au besoin, sens 1 ↔ 2), retrouve ses nœuds par leurs coordonnées
+  (`bord.pkl`, aussi pour la reprise) ; les cellules de sa dernière ligne attendent la bande suivante.
+- Contrôles : `test/bandes.test.js` (réseau synthétique : même graphe, mêmes minutes) ; d'un bloc, tuiles
+  identiques à l'octet près à la version d'avant ; Bretagne réelle bloc / bandes de 3
+  (`test/comparer_tuilages.js`, job `comparer`) : 5 arêtes sur 5,5 M absentes, 29 774 en plus (petits morceaux
+  isolés gardés près des raccords), 0 à 32 cellules différentes sur 58 000 à 90 000 ; 1,9 Go de RAM.
+- `--contour ../tuiles/departements.json --marge-km 2` : 6 281 tuiles (3 groupes : continent, Corse, une île) ;
+  `contour.json` national (France métropolitaine, `departs` = les 96 chefs-lieux).
+- Choix d'Aurélien : tuiles de la métropole dans la **release GitHub `tuiles-fr`** (un tar, remplacé à chaque
+  tuilage), pas dans git ; `deployer.yml` reprend les releases `tuiles-*`. Page : **départ tiré au sort** parmi
+  les 96 chefs-lieux à chaque visite (sans lien), carte ouverte dessus au zoom 10.
+- Lancé le 16/10 vers 19 h 20 (commit 838bee0) : 22 régions extraites puis tuilées par bandes de 5 lignes
+  (`a_tuiler.json`). Durée estimée ~2 h.
+
+Reste (phase 4) : vérifier le run (release `tuiles-fr`, déploiement), contrôle visuel du site (Aurélien,
+`workers.dev` bloqué depuis le cloud), non-régression Oléron sur les tuiles nationales, puis retirer
+`tuiles/fr/` (17) du dépôt. Choroplèthe des 101 chefs-lieux (`france.html`, anciennes tuiles à la racine de
+`tuiles/`) : à refaire sur les tuiles nationales.
+
 Phases suivantes : voir la spec (§7).
