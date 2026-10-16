@@ -648,10 +648,11 @@ document.getElementById("replier").addEventListener("click", e => {
     $("#note-couverture").textContent = `Part des cellules de 100 m ${TERRITOIRE === "oleron" ? "de l'île" : "des 14 communes"} atteintes.`;
   }
 
-  // Taille de la fenêtre (essai du 16/10/2026) : ?fenetre=7 charge 7 × 7 tuiles (~35 km autour du départ) au lieu
-  // de 5 × 5 (~25 km), pour ne plus couper la zone d'une heure dans les réseaux denses (Paris). Cache : la
-  // fenêtre et sa couronne de préchargement, plus une marge pour revenir en arrière sans relire
-  const FENETRE = new URLSearchParams(location.search).get("fenetre") === "7" ? 7 : 5;
+  // Taille de la fenêtre : 7 × 7 tuiles (~35 km autour du départ) depuis le 16/10/2026 (essai d'Aurélien sur
+  // téléphone à Paris : plus fluide, la zone d'une heure n'est plus coupée pendant le survol) ; ?fenetre=5 pour
+  // l'ancienne fenêtre de 5 × 5. Cache : la fenêtre et sa couronne de préchargement, plus une marge pour revenir
+  // en arrière sans relire
+  const FENETRE = new URLSearchParams(location.search).get("fenetre") === "5" ? 5 : 7;
   const RAYON = (FENETRE - 1) / 2;
   const chargeur = new ChargeurTuiles({ index, rayon: RAYON, capacite: Math.max(60, (2 * RAYON + 3) ** 2 + 20),
     lire: (tx, ty) => fetch(`${DOSSIER}${tx}_${ty}.bin`).then(r => {
@@ -670,7 +671,7 @@ document.getElementById("replier").addEventListener("click", e => {
     return dedans;
   }
 
-  // Fenêtre courante (5 × 5 tuiles recollées, 7 × 7 avec ?fenetre=7) et tout ce qui en dépend
+  // Fenêtre courante (7 × 7 tuiles recollées, 5 × 5 avec ?fenetre=5) et tout ce qui en dépend
   const vue = { P: null, G: null, g: null, centre: null, partielle: false };
   const etat = { mode: "tout", symbo: "vitesse", cible: "depart", depart: null, arrivee: null, acc: null, res: null, minutes: null };
 
