@@ -761,7 +761,7 @@ document.getElementById("replier").addEventListener("click", e => {
     vue.partielle = f.partielle;
     if (f.P === vue.P) return;
     vue.P = f.P; vue.g = f.P.grille; vue.centre = f.centre;
-    majCrxFenetre();
+    majCrxFenetre(); majAccesFenetre();
     vue.G = graphes(f.P);
     vue.g.pro.confort = vue.g.pro.tout; vue.g.dist.confort = vue.g.dist.tout;   // même réseau que « tout », poids différents
     if (masqueZone) appliquerMasque(vue.g, masqueZone, index.grille);   // vue territoire : cellules hors du territoire ni colorées ni comptées
@@ -1623,8 +1623,44 @@ document.getElementById("replier").addEventListener("click", e => {
     $("#acces .deplier").setAttribute("aria-expanded", String(accesDetail));
     $("#acces").querySelectorAll("tr.sous").forEach(tr => { tr.hidden = !accesDetail; });
   });
-  fetch(DOSSIER + "accessibilite.json").then(r => (r.ok ? r.json() : null)).then(A => {
-    if (!A) return;
+  // Données par blocs de tuiles (comptages_blocs.py, phase 6) : acces/index.json (libellés, sources) et
+  // acces/<bx>_<by>.json ; seuls les blocs de la fenêtre sont lus, fusionnés puis repris à chaque fenêtre. À défaut,
+  // l'ancien fichier unique accessibilite.json (comptages.py, un département).
+  let accesBlocs = null;
+  const absolus = d => { const t = new Array(d.length); let s = 0; for (let x = 0; x < d.length; x++) { s += d[x]; t[x] = s; } return t; };
+  const enDeltas = k => k.map((v, x) => (x ? v - k[x - 1] : v));
+  async function chargerAccesBlocs() {
+    if (!accesBlocs || !vue.centre) return;
+    const [cx, cy] = vue.centre, I = accesBlocs.I, B = I.bloc, cles = [];
+    for (let by = Math.floor((cy - RAYON) / B); by <= Math.floor((cy + RAYON) / B); by++)
+      for (let bx = Math.floor((cx - RAYON) / B); bx <= Math.floor((cx + RAYON) / B); bx++)
+        if (accesBlocs.existe.has(`${bx}_${by}`)) cles.push(`${bx}_${by}`);
+    const cle = cles.join();
+    if (cle === accesBlocs.cle) return;
+    await Promise.all(cles.filter(k => !accesBlocs.cache.has(k)).map(k => fetch(`${DOSSIER}acces/${k}.json`)
+      .then(r => (r.ok ? r.json() : null)).catch(() => null).then(D => accesBlocs.cache.set(k, D))));
+    const blocs = cles.map(k => accesBlocs.cache.get(k)).filter(Boolean);
+    const eqs = blocs.map(D => D.equipements).filter(Boolean);
+    const eq = eqs.length ? { k: enDeltas(eqs.flatMap(e => absolus(e.k))), t: eqs.flatMap(e => e.t), d: eqs.flatMap(e => e.d),
+      f: eqs.flatMap(e => e.f), p: eqs.flatMap(e => e.p) } : null;
+    const couches = I.couches.map(c => {
+      const parts = blocs.map(D => (D.couches || []).find(x => x.id === c.id)).filter(Boolean);
+      return { ...c, k: enDeltas(parts.flatMap(x => absolus(x.k))), v: parts.flatMap(x => x.v) };
+    });
+    accesBlocs.cle = cle;
+    const A = { ...I, equipements: eq, couches };
+    if (!acces) installerAcces(A);
+    else { acces = preparerComptages(A); indexerAcces(); afficherAcces(); }
+  }
+  const majAccesFenetre = () => { if (accesBlocs) chargerAccesBlocs(); };
+  fetch(DOSSIER + "acces/index.json").then(r => (r.ok ? r.json() : null)).catch(() => null).then(I => {
+    if (I && I.bloc) {
+      accesBlocs = { I, cache: new Map(), existe: new Set(I.blocs.map(([x, y]) => `${x}_${y}`)), cle: null };
+      return chargerAccesBlocs();
+    }
+    return fetch(DOSSIER + "accessibilite.json").then(r => (r.ok ? r.json() : null)).then(A => { if (A) installerAcces(A); });
+  }).catch(() => {});
+  function installerAcces(A) {
     acces = preparerComptages(A);
     $("#bloc-acces").hidden = false;
     if (masqueZone) $("#titre-acces").textContent = `À portée depuis ce départ, dans ${nomTerr}`;
@@ -1634,9 +1670,10 @@ document.getElementById("replier").addEventListener("click", e => {
       acces.eq ? "Équipements au point géolocalisé par l'Insee ; carte : plein = par les pistes ou tranquillement, pâle = par la route seulement, creux = au-delà du seuil." : "",
       acces.couches.some(c => c.id === "population") ? "Habitants : population fiscale, répartie dans chaque carreau de 200 m." : "",
       `Sources : ${[...acces.sources, ...acces.couches.filter(c => !/Filosofi/.test(c.source)).map(c => `${c.libelle} : ${c.source}`)].join(" ; ")}.`,
+      acces.couches.some(c => c.id === "population") ? "" : "Pas de données d'habitants pour ce territoire (carroyage Filosofi indisponible).",
     ].filter(Boolean).join(" ");
     indexerAcces(); afficherAcces();
-  }).catch(() => {});
+  }
 
   // ---------- Territoire de la demi-heure (diagnostic_<territoire>.json, diagnostic.js ; vue territoire) ----------
   // Pour chaque habitant et chaque fonction : tranquille, route seulement (investissement cyclable), trop loin

@@ -94,8 +94,28 @@ jobs:
       # Croisements réseau cyclable × routes par blocs de tuiles (croisements.py, phase 5) : crx/ dans les tuiles
       - name: Croisements
         if: ${{ matrix.t.croisements }}
+        continue-on-error: true            # sans croisements, les tuiles restent publiables
         working-directory: chaine
         run: python -I -X utf8 croisements.py --tuiles "../${{ matrix.t.sortie }}" --parquet 'cache/regions/*.parquet'
+      # Équipements (BPE 2025, Insee, France entière) et habitants (Filosofi 2021 carroyé 200 m, métropole seule)
+      # par blocs de tuiles (comptages_blocs.py, phase 6) : acces/ dans les tuiles. Sources : sondage du 16/10/2026.
+      - name: Équipements et habitants
+        if: ${{ matrix.t.acces }}
+        continue-on-error: true
+        working-directory: chaine
+        run: |
+          mkdir -p cache/insee
+          curl -sSfL --retry 4 -o cache/insee/BPE25.parquet https://www.insee.fr/fr/statistiques/fichier/8217525/BPE25.parquet
+          curl -sSfL --retry 4 -o cache/insee/BPE25_varmod.csv https://www.insee.fr/fr/metadonnees/source/fichier/BPE25_anonymisee_varmod.csv
+          fil=()
+          if [ "${{ matrix.t.grille }}" = fr ]; then
+            curl -sSfL --retry 4 -o cache/insee/filosofi2021.parquet \
+              https://static.data.gouv.fr/resources/revenus-pauvrete-et-niveau-de-vie-donnees-carroyees-dispositif-fichier-localise-social-et-fiscal-filosofi/20260309-120901/carreaux-200m-met-3035-2021.parquet
+            fil=(--filosofi cache/insee/filosofi2021.parquet --millesime-filosofi 2021)
+          fi
+          /usr/bin/time -v -o ../mesure-acces.txt python -I -X utf8 comptages_blocs.py --tuiles "../${{ matrix.t.sortie }}" \
+            --bpe cache/insee/BPE25.parquet --millesime-bpe 2025 "${fil[@]}"
+          grep -E "Maximum resident|Elapsed" ../mesure-acces.txt
       - uses: actions/upload-artifact@v4
         with:
           name: tuiles-${{ matrix.t.nom }}
