@@ -242,3 +242,6 @@ Demande d'Aurélien : avant de régler les mises à jour, aider les visiteurs à
 - Aperçu des branches : `.github/workflows/apercu.yml` (`wrangler versions upload --preview-alias <branche>`,
   `preview_urls` dans `wrangler.jsonc`) → https://contrib-osm-portee-velo.aurelienchaumet17.workers.dev, sans
   toucher au site en ligne.
+- `tuiler.yml` et `diagnostiquer.yml` limités aux pushes sur `france-entiere` et `main` (17/10) : la fusion de
+  `france-entiere` dans `contrib-osm` avait lancé les diagnostics sur la branche de travail (annulés avant toute
+  publication), qui auraient republié `diag-*` et déployé la branche en ligne. Le lancement à la main reste possible.
