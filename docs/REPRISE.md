@@ -186,6 +186,13 @@ Corrigé : comptages et pastilles seulement dans l'onglet Services (au survol, a
 la première ouverture de l'onglet, couche RD construite case cochée. Blocage par clic à Paris : ~7 s → ~4 s pour
 4 clics (Chromium sans GPU de la session ; à confirmer sur téléphone).
 
+**Nationales (17/10, demande d'Aurélien)** : bit 14 de attr (`code_route` dans `tuiler.py`, ref N… / RN… d'OSM ;
+une route D et N à la fois reste D) → `P.nat` ; libre car les vitesses tiennent sur 5 bits (masque 0x1ff). Bouton
+« Sans départementales et nationales » (RD, nationales et routes principales interdites sauf traversées), case
+« Départementales et nationales ». Croisements inchangés (bit 15 seul, choix d'Aurélien). Voies express
+(`trunk`) gardées si OSM les dit ouvertes au vélo (`bicycle=yes|designated|permissive`), en classe 4 ; autoroutes
+jamais. Test : `bandes.test.js` (nationales au raccord, mode sans nationales).
+
 BD TOPO pour les RD : **pas branchée (option prudente, à décider)**. Mesure du 17/10 sur les tuiles
 nationales : 369 912 km d'arêtes marquées RD par la `ref` OSM, pour ~378 000 km de RD officielles (≈ 98 %).
 L'appariement BD TOPO (téléchargement IGN par département, `marquer_rd.py`) apporterait peu pour un gros chantier.

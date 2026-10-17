@@ -71,7 +71,7 @@ function preparer(D) {
   }
   const g = D.grille;
   return {
-    n, m, lon, lat, lm, cls, sens, vit, rd,
+    n, m, lon, lat, lm, cls, sens, vit, rd, nat: new Uint8Array(m),
     a: Int32Array.from(D.aretes.a), b: Int32Array.from(D.aretes.b), nom: Int32Array.from(D.aretes.nom),
     noms: D.noms,
     grille: {
@@ -94,7 +94,8 @@ function construireGraphe(P, mode) {
   // depuis la mairie). Un seul segment au contact d'une piste : la règle ne se propage pas le long d'une route.
   // Mode sans départementales : même règle de traversée, sans les liaisons (réservées aux pistes).
   const penCls = CFG.penalites[mode], penE = new Float32Array(m), restreint = mode === "amenage" || mode === "sansdep";
-  const pen0 = mode === "sansdep" ? e => (P.rd[e] ? Infinity : penCls[P.cls[e]]) : e => penCls[P.cls[e]];
+  // Sans départementales et nationales (17/10/2026) : RD (P.rd, bit 15) et nationales (P.nat, bit 14) interdites
+  const pen0 = mode === "sansdep" ? e => (P.rd[e] || (P.nat && P.nat[e]) ? Infinity : penCls[P.cls[e]]) : e => penCls[P.cls[e]];
   let touche = null;
   if (restreint) {
     touche = new Uint8Array(n);
@@ -915,6 +916,7 @@ function ajouterTroncons(P, troncons) {
     a: etendre(Int32Array, P.a, ea), b: etendre(Int32Array, P.b, eb), lm: etendre(Float32Array, P.lm, el),
     cls: etendre(Uint8Array, P.cls, rempli(dm, 0)), sens: etendre(Uint8Array, P.sens, rempli(dm, 0)),
     vit: etendre(Uint8Array, P.vit, rempli(dm, CFG.vitesseSimuleeKmh)), rd: etendre(Uint8Array, P.rd || new Uint8Array(P.m), rempli(dm, 0)),
+    nat: etendre(Uint8Array, P.nat || new Uint8Array(P.m), rempli(dm, 0)),
     nom: etendre(Int32Array, P.nom, rempli(dm, P.noms.length)), noms: [...P.noms, "Piste (simulée)"],
   };
   if (P.global) Q.global = etendre(Float64Array, P.global, rempli(dn, -1));
@@ -1032,15 +1034,16 @@ function recollerTuiles(tuiles) {
     mTotal += t.m;
   }
   const a = new Int32Array(mTotal), b = new Int32Array(mTotal), lm = new Float32Array(mTotal);
-  const cls = new Uint8Array(mTotal), sens = new Uint8Array(mTotal), vit = new Uint8Array(mTotal), rd = new Uint8Array(mTotal);
+  const cls = new Uint8Array(mTotal), sens = new Uint8Array(mTotal), vit = new Uint8Array(mTotal), rd = new Uint8Array(mTotal), nat = new Uint8Array(mTotal);
   let m = 0, ecartees = 0;
   for (const { t } of blocs) {
     for (let e = 0; e < t.m; e++) {
       const ia = indice(t.a[e]), ib = indice(t.b[e]);
       if (ia < 0 || ib < 0) { ecartees++; continue; }
       const at = t.attr[e];
-      a[m] = ia; b[m] = ib; lm[m] = t.l[e] / 10; cls[m] = at & 7; sens[m] = (at >> 3) & 3; vit[m] = (at >> 5) & 0x3ff;
-      rd[m] = at >> 15;                                    // bit 15 : route départementale (marquer_rd.py)
+      a[m] = ia; b[m] = ib; lm[m] = t.l[e] / 10; cls[m] = at & 7; sens[m] = (at >> 3) & 3; vit[m] = (at >> 5) & 0x1ff;
+      rd[m] = at >> 15;                                    // bit 15 : route départementale (tuiler.py, ref D…)
+      nat[m] = (at >> 14) & 1;                             // bit 14 : route nationale (ref N…, 17/10/2026)
       m++;
     }
   }
@@ -1061,7 +1064,7 @@ function recollerTuiles(tuiles) {
     }
   }
   return {
-    n, m, lon, lat, global, lm: lm.subarray(0, m), cls: cls.subarray(0, m), sens: sens.subarray(0, m), vit: vit.subarray(0, m), rd: rd.subarray(0, m),
+    n, m, lon, lat, global, lm: lm.subarray(0, m), cls: cls.subarray(0, m), sens: sens.subarray(0, m), vit: vit.subarray(0, m), rd: rd.subarray(0, m), nat: nat.subarray(0, m),
     a: a.subarray(0, m), b: b.subarray(0, m), nom: new Int32Array(m), noms: [""], ecartees,
     grille: {
       w: GRILLE_FRANCE.lon0 + txMin * C * GRILLE_FRANCE.dlon, n: GRILLE_FRANCE.lat0 - tyMin * C * GRILLE_FRANCE.dlat,

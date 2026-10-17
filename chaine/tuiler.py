@@ -53,6 +53,9 @@ CLASSE_FINE = {"unclassified": 5, "track": 6, "path": 6, "footway": 6, "pedestri
 
 def classer_fin(tags):
     """classer() de la carte Oléron, puis classe 2 découpée : 2 rues/service, 5 unclassified, 6 chemins, 7 tertiary."""
+    hw = tags.get("highway")
+    if hw in ("trunk", "trunk_link") and tags.get("bicycle") in VELO_OK_TRUNK:
+        tags = {**tags, "highway": "primary" if hw == "trunk" else "primary_link"}
     r = classer(tags)
     if r is None or r[0] != 2:
         return r
@@ -79,6 +82,24 @@ REF_RD = re.compile(r"(?:^|;)\s*R?D\s?\d", re.IGNORECASE)
 def est_departementale(tags):
     """Route départementale d'après OSM : ref commençant par D (ou RD) suivi d'un numéro."""
     return bool(REF_RD.search(tags.get("ref") or ""))
+
+
+# Routes nationales (17/10/2026, bit 14 de attr → P.nat : mode « Sans départementales et nationales », case
+# « Départementales et nationales » ; pas les croisements, qui ne lisent que le bit 15) : ref « N 137 », « RN 7 ».
+# Le bit 14 est libre : les vitesses (bits 5 à 14) ne dépassent pas 20 km/h, soit 5 bits.
+REF_N = re.compile(r"(?:^|;)\s*R?N\s?\d", re.IGNORECASE)
+
+
+def code_route(classe, tags):
+    """1 départementale, 2 nationale (les deux : départementale), 0 sinon ; rues et routes seulement."""
+    if classe not in CLASSES_RD:
+        return 0
+    return 1 if est_departementale(tags) else 2 if REF_N.search(tags.get("ref") or "") else 0
+
+
+# Voies express (highway=trunk) : exclues par classer() (vélo interdit en général), sauf ouvertes au vélo dans OSM
+# (bicycle=yes…, 17/10/2026) : traitées alors comme une route principale (classe 4).
+VELO_OK_TRUNK = {"yes", "designated", "permissive"}
 
 
 ILE_MIN_M = 5_000              # réseau séparé gardé s'il totalise 5 km de voies (îles sans pont), sinon écarté
@@ -164,7 +185,7 @@ def lire_voies(con, source, boites):
         if r[0] == 1:
             rr = classer_fin({k: v for k, v in tags.items() if k not in CLES_CYCLEWAY + ("bicycle_road", "cyclestreet")})
             route = rr[0] if rr else -1
-        voies.append((np.asarray(g.coords)[:, :2], *r, route, int(r[0] in CLASSES_RD and est_departementale(tags))))
+        voies.append((np.asarray(g.coords)[:, :2], *r, route, code_route(r[0], tags)))
     print(f"  {len(voies)} voies cyclables, {ecartees} écartées par classer()")
     return voies
 
@@ -591,8 +612,10 @@ def traiter_groupe(con, source, tuiles, base0, masque, vers_l93, sortie, control
     lon, lat, k_tuile = lon[tri], lat[tri], k_tuile[tri]
     l_dm = np.maximum(1, np.round(longueur * 10)).astype(np.int64)
     classe, vit, sens = attr[:, 0], attr[:, 1], attr[:, 2]
-    rd = attr[:, 4] if attr.shape[1] > 4 else np.zeros(len(attr), np.int64)
-    attr_code = classe | (sens << 3) | (vit << 5) | (rd << 15)      # bit 15 : départementale (coeur.js → P.rd)
+    rd = attr[:, 4] if attr.shape[1] > 4 else np.zeros(len(attr), np.int64)    # code_route : 1 RD, 2 nationale
+    assert vit.max(initial=0) < 512, "vitesse sur plus de 9 bits : empiéterait sur le bit 14 (nationales)"
+    attr_code = (classe | (sens << 3) | (vit << 5) | ((rd == 2).astype(np.int64) << 14)   # bit 14 : nationale (P.nat)
+                 | ((rd == 1).astype(np.int64) << 15))                                     # bit 15 : départementale (P.rd)
     print(f"  graphe : {len(lon)} nœuds, {len(a)} arêtes, {longueur.sum() / 1000:.0f} km")
     if controle is not None:
         controle.append((len(lon), a + base0, b_abs, l_dm, attr_code))

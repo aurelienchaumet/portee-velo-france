@@ -26,7 +26,7 @@ function aretes(P) {
   for (let e = 0; e < P.m; e++) {
     let [a, b, s] = [cle(P.a[e]), cle(P.b[e]), P.sens[e]];
     if (a > b) { [a, b] = [b, a]; s = s === 1 ? 2 : s === 2 ? 1 : s; }
-    liste.push(`${a}>${b}|${Math.round(P.lm[e] * 10)}|${P.cls[e]}|${s}|${P.vit[e]}|${P.rd[e]}`);
+    liste.push(`${a}>${b}|${Math.round(P.lm[e] * 10)}|${P.cls[e]}|${s}|${P.vit[e]}|${P.rd[e]}|${P.nat[e]}`);
   }
   return liste.sort();
 }
@@ -41,6 +41,12 @@ test("bandes : même graphe recollé qu'un tuilage d'un bloc", async () => {
   const nRd = P => P.rd.reduce((n, v) => n + v, 0);
   assert.ok(nRd(bloc) > 100, `${nRd(bloc)} arêtes départementales`);
   assert.equal(nRd(bandes), nRd(bloc));
+  // Nationales (bit 14, 17/10/2026) : lues dans P.nat, sans toucher aux vitesses ni aux départementales
+  const nNat = P => P.nat.reduce((n, v) => n + v, 0);
+  assert.ok(nNat(bloc) > 100, `${nNat(bloc)} arêtes nationales`);
+  assert.equal(nNat(bandes), nNat(bloc));
+  assert.equal(bloc.nat.reduce((n, v, e) => n + (v && bloc.rd[e] ? 1 : 0), 0), 0, "une arête n'est pas les deux");
+  assert.ok(Math.max(...bloc.vit) <= 24, "vitesses intactes malgré le bit 14");
 });
 
 test("bandes : mêmes minutes par cellule depuis un départ à cheval sur un raccord", async () => {
@@ -60,4 +66,17 @@ test("bandes : mêmes minutes par cellule depuis un départ à cheval sur un rac
   }
   assert.ok(atteintes > 50000, `${atteintes} cellules atteintes`);
   assert.equal(ecarts, 0, `${ecarts} cellules différentes sur ${atteintes}`);
+});
+
+test("sans départementales et nationales : les nationales ne sont plus empruntées", async () => {
+  const P = await charger("bloc");
+  const gardees = (mode, f) => {
+    const G = C.construireGraphe(P, mode), vues = new Set();
+    for (let k = 0; k < G.arete.length; k++) if (f(G.arete[k])) vues.add(G.arete[k]);
+    return vues.size;
+  };
+  const nat = e => P.nat[e] === 1, nNat = P.nat.reduce((n, v) => n + v, 0);
+  assert.equal(gardees("tout", nat), nNat, "avec les routes : toutes les nationales");
+  const reste = gardees("sansdep", nat);
+  assert.ok(reste <= nNat * 0.05, `${reste} arêtes nationales gardées sur ${nNat} (traversées seulement)`);
 });

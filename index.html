@@ -326,9 +326,9 @@ dialog.apropos .fermer{position:absolute;top:10px;right:10px;width:34px;height:3
     <span class="entree"><span class="trait-piste" aria-hidden="true"></span> Pistes</span>
     <span class="entree"><span class="trait-bande" aria-hidden="true"></span> Bandes</span>
   </label>
-  <label class="case-reseau" for="voir-rd" title="Routes départementales : numéro de départementale (D…) porté par la route dans OpenStreetMap">
+  <label class="case-reseau" for="voir-rd" title="Routes départementales et nationales : numéro D… ou N… porté par la route dans OpenStreetMap">
     <input type="checkbox" id="voir-rd">
-    <span class="entree"><span class="trait-rd" aria-hidden="true"></span> Départementales</span>
+    <span class="entree"><span class="trait-rd" aria-hidden="true"></span> Départementales et nationales</span>
   </label>
   </div>
 </div>
@@ -393,7 +393,7 @@ dialog.apropos .fermer{position:absolute;top:10px;right:10px;width:34px;height:3
         <summary id="reglages-resume">Réglages de la carte</summary>
         <div class="bascule reseau" role="group" aria-label="Réseau utilisé">
           <button type="button" data-mode="amenage" aria-pressed="false" title="Pistes, voies vertes et bandes cyclables seulement">Sans les routes</button>
-          <button type="button" data-mode="sansdep" aria-pressed="false" title="Pistes, bandes, rues, voies communales et chemins : routes départementales et nationales interdites, sauf pour les traverser">Sans départementales</button>
+          <button type="button" data-mode="sansdep" aria-pressed="false" title="Pistes, bandes, rues, voies communales et chemins : routes départementales et nationales interdites, sauf pour les traverser">Sans départementales et nationales</button>
           <button type="button" data-mode="tout" aria-pressed="true" title="Pistes et bandes, complétées par les routes et chemins">Avec les routes</button>
         </div>
         <div class="bascule" id="bascule-symbo" role="group" aria-label="Couleur de la carte">
@@ -523,8 +523,8 @@ dialog.apropos .fermer{position:absolute;top:10px;right:10px;width:34px;height:3
   <h2 id="apropos-titre">À propos</h2>
   <div class="credits">
     <p>Temps réels : 20 km/h sur revêtement lisse, 13 à 17 km/h sur stabilisé ou grave, 8 km/h sur sable, sur piste comme sur route (+5 % sur route pour préférer une piste qui la longe). Sens uniques à contre-sens : vélo poussé, à 5 km/h. Accès au réseau à vol d'oiseau, majoré de 30 %, à 16 km/h. Ni vent, ni relief.</p>
-    <p><strong>Réseaux.</strong> Avec les routes : tout le réseau, trajet le plus rapide. Sans départementales : départementales (numéro D… dans OpenStreetMap) et nationales interdites sauf pour les traverser, giratoire compris. Sans les routes : pistes, voies vertes et bandes, reliées par de courtes liaisons.</p>
-    <p><strong>Sources.</strong> Réseau cyclable, routes (départementales : numéro D… porté par la route), contours et trait de côte : OpenStreetMap (© contributeurs, ODbL), données figées à une date. Fond Plan IGN. Adresses Géoplateforme. <span id="meta"></span></p>
+    <p><strong>Réseaux.</strong> Avec les routes : tout le réseau, trajet le plus rapide. Sans départementales et nationales : routes numérotées D… ou N… dans OpenStreetMap (et routes principales) interdites sauf pour les traverser, giratoire compris. Autoroutes et voies express : jamais empruntées, sauf voie express ouverte au vélo dans OpenStreetMap. Sans les routes : pistes, voies vertes et bandes, reliées par de courtes liaisons.</p>
+    <p><strong>Sources.</strong> Réseau cyclable, routes (départementales et nationales : numéro D… ou N… porté par la route), contours et trait de côte : OpenStreetMap (© contributeurs, ODbL), données figées à une date. Fond Plan IGN. Adresses Géoplateforme. <span id="meta"></span></p>
     <p><strong>Inspiration.</strong> <a href="https://tram.camilleroux.com/" target="_blank" rel="noopener">À portée de tram</a> de Camille Roux, lui-même issu du <a href="https://castrio.me/nyc/" target="_blank" rel="noopener">NYC Transit Time Cartogram</a> d'Anthony Castrio et de sa <a href="https://github.com/JulesGrandin/paris-temps-transport" target="_blank" rel="noopener">déclinaison parisienne</a> par Jules Grandin. Réalisation : SIT du Pôle Marennes-Oléron, <a href="https://github.com/sit-pmo/portee-velo" target="_blank" rel="noopener">code source</a> (MIT).</p>
   </div>
 </dialog>
@@ -588,9 +588,9 @@ document.getElementById("replier").addEventListener("click", e => {
   const NOTES = {
     amenage: `Pistes, voies vertes et bandes cyclables d'OpenStreetMap, reliées entre elles par de courtes liaisons : jusqu'à ${CFG.liaisonMaxM} m sur rue calme ou chemin, ${CFG.liaisonMaxM / 2} m sur route, plus les traversées de chaussée. En gris, les secteurs à plus de ${CFG.accesMaxM.amenage} m de ce réseau.`,
     tout: "Pistes et bandes, complétées par les routes et chemins, au temps réel (+5 % sur route pour préférer une piste qui la longe).",
-    sansdep: `Pistes et bandes, rues, voies communales et chemins, sans jamais emprunter une départementale (numéro D… dans OpenStreetMap) ni une nationale : on peut seulement la traverser, giratoire compris (au plus ${CFG.traverseeDepMaxM} m). Une piste le long d'une départementale reste permise. En gris, les secteurs à plus de ${CFG.accesMaxM.sansdep} m de ce réseau.`,
+    sansdep: `Pistes et bandes, rues, voies communales et chemins, sans jamais emprunter une départementale ni une nationale (numéro D… ou N… dans OpenStreetMap, ou route principale) : on peut seulement la traverser, giratoire compris (au plus ${CFG.traverseeDepMaxM} m). Une piste le long d'une départementale reste permise. En gris, les secteurs à plus de ${CFG.accesMaxM.sansdep} m de ce réseau.`,
   };
-  const LIBELLES_MODE = { amenage: "sans les routes", sansdep: "sans départementales", tout: "avec les routes" };
+  const LIBELLES_MODE = { amenage: "sans les routes", sansdep: "sans départementales et nationales", tout: "avec les routes" };
 
   // ---------- Données : index des tuiles et contour du département ----------
   // fetch ne fonctionne pas en ouvrant le fichier directement (file://) : il faut un serveur (GitHub Pages,
@@ -747,7 +747,7 @@ document.getElementById("replier").addEventListener("click", e => {
   // de la carte, chacun redessiné à chaque déplacement (ralentissement progressif au fil du survol)
   const rendu = L.canvas({ pane: "reseau", padding: 0.3 });
   const trace = L.layerGroup().addTo(carte);
-  // Routes départementales (P.rd, couche du Département) sous le réseau cyclable, à la demande
+  // Routes départementales et nationales (P.rd, P.nat : ref D… / N… d'OSM) sous le réseau cyclable, à la demande
   const departementales = L.layerGroup(), renduRd = L.canvas({ pane: "rd", padding: 0.3 });
   // Tracé construit seulement case cochée (17/10/2026 : depuis le bit RD posé au tuilage, des dizaines de milliers de
   // segments refaits à chaque fenêtre, même masqués), et refait à la fenêtre suivante si elle reste cochée
@@ -757,7 +757,7 @@ document.getElementById("replier").addEventListener("click", e => {
     if (rdDe !== vue.P) {
       const P = vue.P;
       departementales.clearLayers(); rdDe = P;
-      L.polyline(lignesReseau(P, e => P.rd[e]), { renderer: renduRd, interactive: false, color: "#9C2A5E", weight: 3, opacity: .75, lineCap: "round", lineJoin: "round" }).addTo(departementales);
+      L.polyline(lignesReseau(P, e => P.rd[e] || (P.nat && P.nat[e])), { renderer: renduRd, interactive: false, color: "#9C2A5E", weight: 3, opacity: .75, lineCap: "round", lineJoin: "round" }).addTo(departementales);
     }
     departementales.addTo(carte);
   }
@@ -959,7 +959,7 @@ document.getElementById("replier").addEventListener("click", e => {
     $("#detail").textContent = mode === "amenage"
       ? "Aucun itinéraire par les pistes et bandes entre ces deux points. Essayez le réseau « Avec les routes »."
       : mode === "sansdep"
-      ? "Aucun itinéraire sans départementale entre ces deux points. Essayez le réseau « Avec les routes »."
+      ? "Aucun itinéraire sans départementale ni nationale entre ces deux points. Essayez le réseau « Avec les routes »."
       : "Aucun itinéraire trouvé entre ces deux points, ou l'arrivée est trop loin d'une voie praticable.";
   }
 
