@@ -163,8 +163,11 @@ Reste (phase 4) : contrôle visuel du site en ligne par Aurélien.
 ## Phase 6 (nuit du 16/10) : équipements et habitants
 
 - Sources sondées depuis Actions (`sonder.yml`) : BPE 2025 en parquet (insee.fr, fichier 8217525) et Filosofi
-  2021 carroyé 200 m métropole en parquet (data.gouv.fr). **Pas de Filosofi pour les DROM** : la page dit « Pas
-  de données d'habitants pour ce territoire ».
+  2021 carroyé 200 m métropole en parquet (data.gouv.fr). DROM : **Filosofi 2019** pour la Martinique et la
+  Réunion (zip Insee 7655475 → 7z → `carreaux_200m_mart.csv` / `_reun.csv`, carreaux en EPSG 5490 / 2975 :
+  `traiter_filosofi` lit désormais le CRS dans l'identifiant ; écart au SIT à lui signaler). Guadeloupe, Guyane,
+  Mayotte sans carroyage : la page dit « Pas de données d'habitants pour ce territoire ». Fait le 17/10 matin
+  (Martinique 324 204 habitants, Réunion re-tuilée de même).
 - `chaine/comptages_blocs.py` : `traiter_bpe` / `traiter_filosofi` de `comptages.py`, puis découpage par blocs
   de 4 × 4 tuiles → `tuiles/<zone>/acces/index.json` + `acces/<bx>_<by>.json` ; carreau Filosofi réparti sur
   4 × 4 sous-points (et non 10 × 10 : 230 M points en métropole). Page : `chargerAccesBlocs`, blocs de la fenêtre.
@@ -183,4 +186,8 @@ Corrigé : comptages et pastilles seulement dans l'onglet Services (au survol, a
 la première ouverture de l'onglet, couche RD construite case cochée. Blocage par clic à Paris : ~7 s → ~4 s pour
 4 clics (Chromium sans GPU de la session ; à confirmer sur téléphone).
 
-Phases suivantes : voir la spec (§7) — diagnostics par EPCI et par commune, BD TOPO pour les RD.
+BD TOPO pour les RD : **pas branchée (option prudente, à décider)**. Mesure du 17/10 sur les tuiles
+nationales : 369 912 km d'arêtes marquées RD par la `ref` OSM, pour ~378 000 km de RD officielles (≈ 98 %).
+L'appariement BD TOPO (téléchargement IGN par département, `marquer_rd.py`) apporterait peu pour un gros chantier.
+
+Phases suivantes : voir la spec (§7) — diagnostics par EPCI et par commune.
