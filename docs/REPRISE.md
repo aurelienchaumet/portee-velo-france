@@ -248,3 +248,5 @@ Demande d'Aurélien : avant de régler les mises à jour, aider les visiteurs à
 - Overpass (17/10, refus vu par Aurélien sur téléphone) : trois instances publiques essayées dans l'ordre
   (overpass-api.de, maps.mail.ru, private.coffee), 8 s chacune ; message distinct pour 429 (trop de demandes) et
   bouton « Réessayer ». Contrôlé avec des réponses simulées (504, silence, 429 partout).
+- Géolocalisation centrée dans la partie visible de la carte (`centrerVisible`, d'après la place réelle du panneau :
+  au-dessus sur téléphone, à droite sinon ; 17/10, point caché sous l'encart signalé par Aurélien).
