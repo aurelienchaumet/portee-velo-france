@@ -2258,9 +2258,9 @@ document.getElementById("replier").addEventListener("click", e => {
   $("#note-mode").textContent = NOTES[etat.mode];
   if (lien.arrivee) { etat.arrivee = lien.arrivee; marqueurArrivee.setLatLng(lien.arrivee).addTo(carte); }
   etat.suivre = survolPossible && (!lien.depart || lien.suivi);
-  // Territoire trop grand pour la vue d'ensemble (métropole) : la carte s'ouvre sur le départ, à l'échelle d'un département
-  // (centré dans la partie que le panneau ne cache pas, comme la géolocalisation)
-  if (contourDep.departs?.length && !terr) centrerVisible(lien.depart || DEPART_DEFAUT, 10);
+  // Territoire trop grand pour la vue d'ensemble (métropole ; Guyane, 84 000 km² dont seul le littoral est habité) : la
+  // carte s'ouvre sur le départ, à l'échelle d'un département (centré dans la partie que le panneau ne cache pas)
+  if ((contourDep.departs?.length || ZONE === "973") && !terr) centrerVisible(lien.depart || DEPART_DEFAUT, 10);
   await placerDepart(lien.depart || DEPART_DEFAUT, true);
   suivre(etat.suivre);
   selectionner(-1); majLegendeGain();
