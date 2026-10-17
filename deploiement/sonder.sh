@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# Sondage des sources de données depuis GitHub Actions (le conteneur de travail n'atteint ni insee.fr ni
-# data.gouv.fr). 1-2 (16/10) : Filosofi 2021, BPE25 ; 3 (17/10) : Filosofi 2019 des DROM (mart, reun).
-# 4 (17/10) : diagnostics par EPCI : appartenance commune → EPCI et noms des EPCI (geo.api.gouv.fr, COG Insee).
+# Sondage des sources de données depuis GitHub Actions (le conteneur de travail n'atteint pas ces services).
+# 1-3 (16-17/10) : BPE, Filosofi ; 4 : communes et EPCI (geo.api.gouv.fr). 5 (17/10) : position des mairies des
+# 35 000 communes (champ mairie de geo.api.gouv.fr ?), pour les scores par commune.
 set -uo pipefail
 api=https://geo.api.gouv.fr
-echo "=== /epcis"
-curl -sS --max-time 120 "$api/epcis?fields=code,nom" | jq -c 'length, .[0:3]'
-echo "=== /communes (code, nom, codeEpci, codeDepartement, population)"
-curl -sS --max-time 300 "$api/communes?fields=code,nom,codeEpci,codeDepartement,population" -o /tmp/c.json
-ls -l /tmp/c.json; jq -c 'length, .[0:2], ([.[] | select(.codeEpci == null)] | length), ([.[] | .codeDepartement] | unique | length)' /tmp/c.json
-jq -c '[.[] | select(.codeDepartement | startswith("97"))] | group_by(.codeDepartement) | map({d: .[0].codeDepartement, n: length, sans_epci: ([.[] | select(.codeEpci == null)] | length)})' /tmp/c.json
-echo "=== /communes?type=arrondissement-municipal"
-curl -sS --max-time 120 "$api/communes?type=arrondissement-municipal&fields=code,nom,codeEpci" | jq -c 'length, .[0:2]'
+for f in "code,nom,mairie" "code,nom,centre" "code,nom,mairie,centre,population,codeDepartement"; do
+  echo "=== /communes?codeDepartement=17&fields=$f"
+  curl -sS --max-time 120 "$api/communes?codeDepartement=17&fields=$f" | jq -c 'length, .[0:2]'
+done
+echo "=== France : communes avec mairie"
+curl -sS --max-time 300 "$api/communes?fields=code,mairie,centre" -o /tmp/m.json
+jq -c 'length, ([.[] | select(.mairie == null)] | length), ([.[] | select(.centre == null)] | length)' /tmp/m.json
+jq -c '[.[] | select(.mairie == null)] | .[0:5]' /tmp/m.json
