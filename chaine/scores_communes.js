@@ -23,8 +23,9 @@ function args() {
   return a;
 }
 const lireJSON = f => JSON.parse(fs.readFileSync(f, "utf8"));
-// Territoire d'une commune : DROM d'après le code INSEE (971…976), métropole sinon ; COM (975, 977, 978) sans tuiles
-const zoneDe = code => (/^97[1-46]/.test(code) ? code.slice(0, 3) : code.startsWith("97") ? null : "fr");
+// Territoire d'une commune : DROM d'après le code INSEE (971…976), métropole sinon ; collectivités d'outre-mer
+// (975, 977, 978, et 984 à 989 : TAAF, Wallis-et-Futuna, Polynésie, Nouvelle-Calédonie, Clipperton) sans tuiles
+const zoneDe = code => (/^97[1-46]/.test(code) ? code.slice(0, 3) : /^9[78]/.test(code) ? null : "fr");
 
 // Communes d'un territoire, triées par tuile (ty, tx) : les fenêtres successives se recouvrent, le cache sert
 function parTuile(liste, index) {
@@ -78,7 +79,7 @@ function assembler(a) {
   const scores = new Map();
   for (const f of fs.readdirSync(PARTS).filter(f => /^part_\d+\.json$/.test(f)))
     for (const r of lireJSON(path.join(PARTS, f))) scores.set(r.code, r);
-  const liste = lireJSON(a.communes).filter(c => scores.has(c.code)).sort((x, y) => x.code.localeCompare(y.code));
+  const liste = lireJSON(a.communes).filter(c => scores.has(c.code) && zoneDe(c.code)).sort((x, y) => x.code.localeCompare(y.code));
   const col = { code: [], nom: [], dep: [], lon: [], lat: [], pop: [], tout: [], amenage: [] };
   for (const c of liste) {
     const s = scores.get(c.code);
