@@ -220,3 +220,34 @@ toutes les fonctions tranquillement, Paris 1 980 110 habitants. Attention : un d
 ancien (tuilage parti avant le changement de `deployer.yml`) a d'abord écrasé les diagnostics ; relancé à la main.
 
 Phases suivantes : voir la spec (§7) — diagnostics par commune (35 000), COM.
+
+## Boucle de contribution OSM, niveaux 1 et 2 (17/10/2026, branche `contrib-osm`)
+
+Demande d'Aurélien : avant de régler les mises à jour, aider les visiteurs à corriger OSM depuis la carte.
+- `osm-contrib.js` (racine du site, copié par `construire.sh`) : bouton « Vérifier une voie dans OpenStreetMap »
+  dans le socle commun. Au clic : l'arête la plus proche (`areteProche`, toutes classes), ce qu'en dit la tuile
+  (classe, vitesse, sens, RD/N), la voie OSM retrouvée par Overpass (tuiles sans identifiant de voie ; voie choisie
+  par la distance des extrémités et du milieu de l'arête), ses tags utiles, sa lecture aujourd'hui (`lireTags`,
+  miroir de `classer_fin` pour l'explication seulement), des indices (surface, aménagement, `bicycle`,
+  `oneway:bicycle`), « modifiée après nos données » d'après le timestamp. Liens : iD sur la voie (`#porteevelo`),
+  historique, nouvelle note sur osm.org (le clic copie le texte suggéré). Clic sans voie : « une voie manque peut-être ».
+- Rien n'est écrit dans OSM depuis la page (pas d'API notes) : choix prudent, à revoir avec Aurélien.
+- Exclusif des outils Tracer / Aménager une voie ; Échap pour sortir. Notes dans Confort et Simuler.
+- Tests : `test/contrib.test.js` (36 cas de tags comparés à `classer_fin` via `test/contrib_classer.py`, qui
+  régénère `test/fixtures/contrib_cas.json` ; choix de la voie ; liens). Contrôlé dans Chromium (974) avec une
+  réponse Overpass simulée : Overpass est bloqué depuis les sessions cloud, à vérifier en ligne.
+- Géolocalisation (17/10, demande d'Aurélien) : bouton à droite de la recherche d'adresse ; place le départ ou
+  l'arrivée (bascule) sur la position, point bleu et cercle de précision ; hors du territoire, message. Avec
+  « Vérifier une voie » actif, centre seulement la carte. Contrôlé dans Chromium (position simulée, https).
+- Aperçu des branches : `.github/workflows/apercu.yml` (`wrangler versions upload --preview-alias <branche>`,
+  `preview_urls` dans `wrangler.jsonc`) → https://contrib-osm-portee-velo.aurelienchaumet17.workers.dev, sans
+  toucher au site en ligne.
+- `tuiler.yml` et `diagnostiquer.yml` limités aux pushes sur `france-entiere` et `main` (17/10) : la fusion de
+  `france-entiere` dans `contrib-osm` avait lancé les diagnostics sur la branche de travail (annulés avant toute
+  publication), qui auraient republié `diag-*` et déployé la branche en ligne. Le lancement à la main reste possible.
+- Overpass (17/10, refus vu par Aurélien sur téléphone) : trois instances publiques essayées dans l'ordre
+  (overpass-api.de, maps.mail.ru, private.coffee), 8 s chacune ; message distinct pour 429 (trop de demandes) et
+  bouton « Réessayer ». Contrôlé avec des réponses simulées (504, silence, 429 partout).
+- Géolocalisation centrée dans la partie visible de la carte (`centrerVisible`, d'après la place réelle du panneau :
+  au-dessus sur téléphone, à droite sinon ; 17/10, point caché sous l'encart signalé par Aurélien). Aussi à l'ouverture
+  en métropole (départ tiré au sort ou du lien), et pour une adresse choisie hors de la partie visible (`estVisible`).

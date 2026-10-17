@@ -7,6 +7,9 @@ name: Tuilage
 
 on:
   push:
+    # Branches publiées seulement : un push sur une branche de travail (par exemple la fusion de france-entiere
+    # qui y apporte ce fichier) relançait le calcul, republiait les releases et déployait cette branche en ligne
+    branches: [france-entiere, main]
     paths:
       - chaine/a_tuiler.json     # seul déclencheur : modifier le workflow ne relance pas les tuilages
   workflow_dispatch:

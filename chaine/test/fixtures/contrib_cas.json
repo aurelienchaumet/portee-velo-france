@@ -1,0 +1,350 @@
+[
+[
+{
+"highway": "cycleway"
+},
+[
+0,
+20,
+0
+]
+],
+[
+{
+"highway": "cycleway",
+"surface": "compacted"
+},
+[
+0,
+17,
+0
+]
+],
+[
+{
+"highway": "cycleway",
+"oneway": "yes"
+},
+[
+0,
+20,
+1
+]
+],
+[
+{
+"highway": "path",
+"bicycle": "designated",
+"surface": "fine_gravel"
+},
+[
+0,
+16,
+0
+]
+],
+[
+{
+"highway": "path"
+},
+[
+6,
+13,
+0
+]
+],
+[
+{
+"highway": "path",
+"bicycle": "designated"
+},
+[
+0,
+17,
+0
+]
+],
+[
+{
+"highway": "footway"
+},
+null
+],
+[
+{
+"highway": "footway",
+"bicycle": "yes"
+},
+[
+6,
+16,
+0
+]
+],
+[
+{
+"highway": "pedestrian",
+"bicycle": "designated"
+},
+[
+0,
+16,
+0
+]
+],
+[
+{
+"highway": "track",
+"tracktype": "grade3"
+},
+[
+6,
+13,
+0
+]
+],
+[
+{
+"highway": "track"
+},
+[
+6,
+15,
+0
+]
+],
+[
+{
+"highway": "bridleway"
+},
+null
+],
+[
+{
+"highway": "residential"
+},
+[
+2,
+20,
+0
+]
+],
+[
+{
+"highway": "residential",
+"oneway": "yes"
+},
+[
+2,
+20,
+1
+]
+],
+[
+{
+"highway": "residential",
+"oneway": "yes",
+"oneway:bicycle": "no"
+},
+[
+2,
+20,
+0
+]
+],
+[
+{
+"highway": "residential",
+"oneway": "-1"
+},
+[
+2,
+20,
+2
+]
+],
+[
+{
+"highway": "residential",
+"oneway": "yes",
+"cycleway": "opposite_lane"
+},
+[
+2,
+20,
+0
+]
+],
+[
+{
+"highway": "living_street"
+},
+[
+2,
+16,
+0
+]
+],
+[
+{
+"highway": "service"
+},
+[
+2,
+20,
+0
+]
+],
+[
+{
+"highway": "service",
+"service": "parking_aisle"
+},
+null
+],
+[
+{
+"highway": "unclassified",
+"surface": "sett"
+},
+[
+5,
+15,
+0
+]
+],
+[
+{
+"highway": "tertiary",
+"cycleway:right": "lane"
+},
+[
+1,
+20,
+0
+]
+],
+[
+{
+"highway": "secondary"
+},
+[
+3,
+20,
+0
+]
+],
+[
+{
+"highway": "secondary",
+"cycleway:both": "track"
+},
+[
+1,
+20,
+0
+]
+],
+[
+{
+"highway": "primary",
+"junction": "roundabout"
+},
+[
+4,
+20,
+1
+]
+],
+[
+{
+"highway": "primary",
+"bicycle": "no"
+},
+null
+],
+[
+{
+"highway": "trunk"
+},
+null
+],
+[
+{
+"highway": "trunk",
+"bicycle": "yes"
+},
+[
+4,
+20,
+0
+]
+],
+[
+{
+"highway": "motorway"
+},
+null
+],
+[
+{
+"highway": "residential",
+"access": "private"
+},
+null
+],
+[
+{
+"highway": "residential",
+"access": "private",
+"bicycle": "yes"
+},
+[
+2,
+20,
+0
+]
+],
+[
+{
+"highway": "residential",
+"bicycle_road": "yes"
+},
+[
+1,
+20,
+0
+]
+],
+[
+{
+"highway": "residential",
+"area": "yes"
+},
+null
+],
+[
+{
+"highway": "steps"
+},
+null
+],
+[
+{
+"highway": "residential",
+"surface": "sand"
+},
+[
+2,
+8,
+0
+]
+],
+[
+{
+"highway": "path",
+"bicycle": "dismount"
+},
+null
+]
+]
