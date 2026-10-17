@@ -245,3 +245,6 @@ Demande d'Aurélien : avant de régler les mises à jour, aider les visiteurs à
 - `tuiler.yml` et `diagnostiquer.yml` limités aux pushes sur `france-entiere` et `main` (17/10) : la fusion de
   `france-entiere` dans `contrib-osm` avait lancé les diagnostics sur la branche de travail (annulés avant toute
   publication), qui auraient republié `diag-*` et déployé la branche en ligne. Le lancement à la main reste possible.
+- Overpass (17/10, refus vu par Aurélien sur téléphone) : trois instances publiques essayées dans l'ordre
+  (overpass-api.de, maps.mail.ru, private.coffee), 8 s chacune ; message distinct pour 429 (trop de demandes) et
+  bouton « Réessayer ». Contrôlé avec des réponses simulées (504, silence, 429 partout).

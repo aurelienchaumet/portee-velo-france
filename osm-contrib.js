@@ -10,8 +10,11 @@
 // Partie page (installerContribOsm) : Leaflet et le DOM, appelée par index.html.
 const CONTRIB_OSM = (() => {
   const HASHTAG = "porteevelo";
-  // Deux instances publiques d'Overpass, la seconde en secours (CORS ouvert sur les deux)
-  const OVERPASS = ["https://overpass-api.de/api/interpreter", "https://overpass.private.coffee/api/interpreter"];
+  // Instances publiques d'Overpass, essayées dans l'ordre (CORS ouvert) : elles refusent parfois (429 : trop de
+  // demandes depuis la même adresse, fréquent derrière un opérateur mobile ; 504 : serveur chargé), d'où les secours
+  const OVERPASS = ["https://overpass-api.de/api/interpreter", "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+    "https://overpass.private.coffee/api/interpreter"];
+  const DELAI_MS = 8000;              // par instance : au-delà, on passe à la suivante
   const RAYON_M = 20;                 // voies cherchées autour du milieu de l'arête
   const RAD = Math.PI / 180, R_TERRE = 6371008.8;
 
@@ -146,7 +149,7 @@ const CONTRIB_OSM = (() => {
   // Voie modifiée dans OSM après la date des données de la carte ? (timestamp Overpass ISO, genere « AAAA-MM-JJ HH:MM »)
   const modifieeDepuis = (timestamp, genere) => !!(timestamp && genere) && new Date(timestamp) > new Date(genere.replace(" ", "T") + "Z");
 
-  return { HASHTAG, OVERPASS, TAGS_UTILES, lireTags, choisirVoie, distanceLigne, requete, lienId, lienVoie, lienHistorique, lienNote, texteNote, modifieeDepuis };
+  return { HASHTAG, OVERPASS, DELAI_MS, TAGS_UTILES, lireTags, choisirVoie, distanceLigne, requete, lienId, lienVoie, lienHistorique, lienNote, texteNote, modifieeDepuis };
 })();
 
 // ---------- Partie page : outil « Vérifier dans OSM » ----------
@@ -196,19 +199,26 @@ function installerContribOsm(o) {
     return morceaux.filter(Boolean).join(", ");
   }
 
+  // Instances l'une après l'autre, chacune bornée à DELAI_MS ; l'erreur dit si c'était un refus pour trop de demandes
   async function lireOverpass(lat, lon, signal) {
-    let derniere;
+    let tropDeDemandes = false;
     for (const url of C.OVERPASS) {
+      const essai = new AbortController(), minuteur = setTimeout(() => essai.abort(), C.DELAI_MS);
+      const relayer = () => essai.abort();
+      signal.addEventListener("abort", relayer);
       try {
-        const r = await fetch(url, { method: "POST", body: new URLSearchParams({ data: C.requete(lat, lon) }), signal });
+        const r = await fetch(url, { method: "POST", body: new URLSearchParams({ data: C.requete(lat, lon) }), signal: essai.signal });
         if (r.ok) return (await r.json()).elements || [];
-        derniere = new Error(`Overpass ${r.status}`);
-      } catch (e) { if (e.name === "AbortError") throw e; derniere = e; }
+        if (r.status === 429) tropDeDemandes = true;
+      } catch (e) { if (signal.aborted) throw e; }   // délai dépassé ou réseau : instance suivante
+      finally { clearTimeout(minuteur); signal.removeEventListener("abort", relayer); }
     }
-    throw derniere;
+    const err = new Error("Overpass indisponible"); err.tropDeDemandes = tropDeDemandes;
+    throw err;
   }
 
-  function boutons(lat, lon, voie, carteTexte) {
+  // surVoie : une voie est là (dans nos données) mais sans fiche OSM : iD s'ouvre simplement à cet endroit
+  function boutons(lat, lon, voie, carteTexte, surVoie = false) {
     const note = C.texteNote({ voie, carte: carteTexte });
     // Un seul geste pour la note : osm.org n'accepte pas de texte pré-rempli dans l'URL (17/10/2026), donc le clic
     // copie le texte suggéré puis ouvre le formulaire (lien normal : pas de bloqueur de fenêtres). La copie est lancée
@@ -222,7 +232,7 @@ function installerContribOsm(o) {
       if (!navigator.clipboard) aide.textContent = `Recopiez ce texte dans la note : ${note}`;
     });
     return el("div", { class: "osm-actions" },
-      lien(C.lienId({ lat, lon, way: voie?.id }), voie ? "Modifier cette voie dans OSM (iD)" : "Ajouter la voie dans OSM (iD)"),
+      lien(C.lienId({ lat, lon, way: voie?.id }), voie ? "Modifier cette voie dans OSM (iD)" : surVoie ? "Ouvrir cet endroit dans OSM (iD)" : "Ajouter la voie dans OSM (iD)"),
       voie ? lien(C.lienHistorique(voie.id), "Historique de la voie") : null,
       ajouterNote, aide);
   }
@@ -259,7 +269,12 @@ function installerContribOsm(o) {
       try { elements = await lireOverpass(lat, lon, ctrl.signal); }
       catch (err) {
         if (err.name === "AbortError") return;
-        remplir(zoneOsm, el("p", { class: "note", texte: "OpenStreetMap n'a pas répondu (Overpass). Les liens restent utilisables :" }), boutons(lat, lon, null, carteTexte));
+        const reessayer = el("button", { type: "button", class: "lien-action", texte: "Réessayer" });
+        reessayer.addEventListener("click", () => clic(ll));
+        remplir(zoneOsm, el("p", { class: "note", texte: err.tropDeDemandes
+          ? "Le service qui lit OpenStreetMap (Overpass) limite les demandes trop rapprochées : réessayez dans une minute. Les liens restent utilisables :"
+          : "Le service qui lit OpenStreetMap (Overpass) est chargé ou injoignable pour l'instant. Les liens restent utilisables :" }),
+          reessayer, boutons(lat, lon, null, carteTexte, true));
         return;
       }
       if (ctrl.signal.aborted) return;
@@ -267,7 +282,7 @@ function installerContribOsm(o) {
     }
     const voie = C.choisirVoie(elements, ext);
     if (!voie) {
-      remplir(zoneOsm, el("p", { class: "note", texte: "Cette voie n'est plus dans OpenStreetMap à cet endroit (supprimée ou déplacée depuis nos données)." }), boutons(lat, lon, null, carteTexte));
+      remplir(zoneOsm, el("p", { class: "note", texte: "Cette voie n'est plus dans OpenStreetMap à cet endroit (supprimée ou déplacée depuis nos données)." }), boutons(lat, lon, null, carteTexte, true));
       return;
     }
     // Voie OSM entière en surbrillance, sous l'arête
