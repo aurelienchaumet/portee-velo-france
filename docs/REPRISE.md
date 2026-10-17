@@ -176,4 +176,11 @@ Métropole : croisements 296 605 (27 208 avec une RD) en 419 blocs, 16 min, 12 M
 en entier : 5,2 Go même pour un DROM). Plus gros bloc : Paris `acces/15_7.json`, 6 Mo (compressé par Cloudflare).
 Contrôle local à Paris : Services → 1,16 M habitants à 15 min, 9 fonctions sur 9, pas d'erreur.
 
+Lenteur signalée par Aurélien le 17/10 : la page faisait les comptages Services (3 Dijkstra de plus, ~0,8 s par
+calcul à Paris en 7 × 7, contre ~0,25 s pour le calcul lui-même) à chaque calcul et dans tous les onglets, et lisait
+les blocs `acces` au chargement ; la couche RD (désormais remplie) était refaite à chaque fenêtre même masquée.
+Corrigé : comptages et pastilles seulement dans l'onglet Services (au survol, après 250 ms de pause), blocs lus à
+la première ouverture de l'onglet, couche RD construite case cochée. Blocage par clic à Paris : ~7 s → ~4 s pour
+4 clics (Chromium sans GPU de la session ; à confirmer sur téléphone).
+
 Phases suivantes : voir la spec (§7) — diagnostics par EPCI et par commune, BD TOPO pour les RD.

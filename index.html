@@ -749,7 +749,19 @@ document.getElementById("replier").addEventListener("click", e => {
   const trace = L.layerGroup().addTo(carte);
   // Routes départementales (P.rd, couche du Département) sous le réseau cyclable, à la demande
   const departementales = L.layerGroup(), renduRd = L.canvas({ pane: "rd", padding: 0.3 });
-  $("#voir-rd").addEventListener("change", ev => { if (ev.target.checked) departementales.addTo(carte); else departementales.remove(); });
+  // Tracé construit seulement case cochée (17/10/2026 : depuis le bit RD posé au tuilage, des dizaines de milliers de
+  // segments refaits à chaque fenêtre, même masqués), et refait à la fenêtre suivante si elle reste cochée
+  let rdDe = null;
+  function dessinerRd() {
+    if (!$("#voir-rd").checked || !vue.P) { departementales.remove(); return; }
+    if (rdDe !== vue.P) {
+      const P = vue.P;
+      departementales.clearLayers(); rdDe = P;
+      L.polyline(lignesReseau(P, e => P.rd[e]), { renderer: renduRd, interactive: false, color: "#9C2A5E", weight: 3, opacity: .75, lineCap: "round", lineJoin: "round" }).addTo(departementales);
+    }
+    departementales.addTo(carte);
+  }
+  $("#voir-rd").addEventListener("change", dessinerRd);
   $("#voir-reseau").addEventListener("change", ev => { if (ev.target.checked) reseau.addTo(carte); else reseau.remove(); });
 
   const icone = (lettre, cls) => L.divIcon({ className: "", html: `<span class="repere ${cls}">${lettre}</span>`, iconSize: [30, 30], iconAnchor: [15, 15] });
@@ -788,9 +800,7 @@ document.getElementById("replier").addEventListener("click", e => {
     L.polyline(segments[1], { ...style, color: "#fff", weight: 3.4, opacity: .85 }).addTo(reseau);
     L.polyline(segments[1], { ...style, color: "#00657A", weight: 1.6, opacity: 1, dashArray: "3 3" }).addTo(reseau);
     if ($("#voir-reseau").checked) reseau.addTo(carte);
-    departementales.clearLayers();
-    L.polyline(lignesReseau(P, e => P.rd[e]), { renderer: renduRd, interactive: false, color: "#9C2A5E", weight: 3, opacity: .75, lineCap: "round", lineJoin: "round" }).addTo(departementales);
-    if ($("#voir-rd").checked) departementales.addTo(carte);
+    dessinerRd();
   }
 
   // ---------- Dessin ----------
@@ -1554,8 +1564,17 @@ document.getElementById("replier").addEventListener("click", e => {
   const CAS_LIB = ["Tranquille", "Route seulement", "Trop loin"];
   const fmtMinPanier = m => (m <= 60 ? `${Math.max(1, Math.round(m))} min` : "> 1 h");
   // complet = départ fixé (clic, fin de glisser) : on calcule aussi l'« avant » des tronçons simulés pour le gain
+  // Comptages (trois Dijkstra de plus, ~0,8 s à Paris en fenêtre 7 × 7) : seulement dans l'onglet Services, et au
+  // survol après une pause de la souris (17/10/2026 : faits à chaque image dans tous les onglets, la page ramait)
+  let minuteurAcces = null;
+  let question = 1;                            // onglet affiché (allerA, plus bas)
   function afficherAcces(complet = true) {
-    if (!acces || !vue.ixAcces || !etat.depart || !vue.P) return;
+    clearTimeout(minuteurAcces);
+    if (question !== 4 || !acces || !vue.ixAcces || !etat.depart || !vue.P) return;
+    if (!complet && !enCache(vue.sim && sim.vue !== "avant" ? vue.sim : vue)) {
+      minuteurAcces = setTimeout(() => { afficherAcces(false); dessinerEquipements(); }, 250);
+      return;
+    }
     const voirApres = vue.sim && sim.vue !== "avant", ile = vue.g.ile, S = [seuilAcces];
     const M = mesuresAcces(voirApres ? vue.sim : vue);
     const Mav = voirApres && (complet || enCache(vue)) ? mesuresAcces(vue) : null;   // au survol, l'avant n'est pas recalculé
@@ -1595,7 +1614,7 @@ document.getElementById("replier").addEventListener("click", e => {
   }
   function dessinerEquipements() {
     equip.clearLayers();
-    if (!acces || !vue.ixAcces || !etat.depart || !vue.P || !$("#voir-equip").checked) return;
+    if (question !== 4 || !acces || !vue.ixAcces || !etat.depart || !vue.P || !$("#voir-equip").checked) return;
     const M = mesuresAcces(vue.sim && sim.vue !== "avant" ? vue.sim : vue);
     const pts = equipementsFenetre(acces, vue.ixAcces, vue.g, M.tous, vue.g.ile);
     // Plein = atteint par les pistes ou tranquillement ; pâle = par la route seulement ; creux = au-delà du seuil
@@ -1652,11 +1671,11 @@ document.getElementById("replier").addEventListener("click", e => {
     if (!acces) installerAcces(A);
     else { acces = preparerComptages(A); indexerAcces(); afficherAcces(); }
   }
-  const majAccesFenetre = () => { if (accesBlocs) chargerAccesBlocs(); };
+  const majAccesFenetre = () => { if (accesBlocs && question === 4) chargerAccesBlocs(); };
   fetch(DOSSIER + "acces/index.json").then(r => (r.ok ? r.json() : null)).catch(() => null).then(I => {
     if (I && I.bloc) {
       accesBlocs = { I, cache: new Map(), existe: new Set(I.blocs.map(([x, y]) => `${x}_${y}`)), cle: null };
-      return chargerAccesBlocs();
+      return majAccesFenetre();                  // blocs lus à la première ouverture de l'onglet Services
     }
     return fetch(DOSSIER + "accessibilite.json").then(r => (r.ok ? r.json() : null)).then(A => { if (A) installerAcces(A); });
   }).catch(() => {});
@@ -1982,7 +2001,7 @@ document.getElementById("replier").addEventListener("click", e => {
   // cumulée, diagnostic, tracé, Gain).
   const QUESTIONS = { 1: "Jusqu'où je vais en 15 ou 30 minutes ?", 2: "Est-ce que j'y vais tranquillement, et qu'est-ce qui coince ?",
     3: "Et si on aménageait ici ?", 4: "Les habitants ont-ils l'essentiel à portée, tranquillement ?" };
-  let question = 1, modePortee = null;   // réseau choisi dans Portée (null : celui du lien)
+  let modePortee = null;   // réseau choisi dans Portée (null : celui du lien) ; question : plus haut (Services)
   function allerA(q) {
     const avant = question;
     question = q;
@@ -1996,6 +2015,11 @@ document.getElementById("replier").addEventListener("click", e => {
     if (q !== 4 && diag.actif) basculerDiag(false);
     if (q === 4 && !masqueZone) majEpci();
     if (q === 4 && diag.D && !diag.actif) basculerDiag(true);
+    if (q === 4 && q !== avant) {                // comptages et équipements, mis en attente hors de cet onglet
+      if (accesBlocs) chargerAccesBlocs().then(() => { afficherAcces(); dessinerEquipements(); });
+      else { afficherAcces(); dessinerEquipements(); }
+    }
+    if (q !== 4) { clearTimeout(minuteurAcces); equip.clearLayers(); }
     if (q !== 3) {
       if (outil.actif) $("#sim-tracer").click();       // termine le tracé en cours (le tronçon est gardé)
       if (voie.actif) $("#sim-voie").click();
