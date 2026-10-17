@@ -2241,7 +2241,8 @@ document.getElementById("replier").addEventListener("click", e => {
   if (lien.arrivee) { etat.arrivee = lien.arrivee; marqueurArrivee.setLatLng(lien.arrivee).addTo(carte); }
   etat.suivre = survolPossible && (!lien.depart || lien.suivi);
   // Territoire trop grand pour la vue d'ensemble (métropole) : la carte s'ouvre sur le départ, à l'échelle d'un département
-  if (contourDep.departs?.length && !terr) carte.setView(lien.depart || DEPART_DEFAUT, 10);
+  // (centré dans la partie que le panneau ne cache pas, comme la géolocalisation)
+  if (contourDep.departs?.length && !terr) centrerVisible(lien.depart || DEPART_DEFAUT, 10);
   await placerDepart(lien.depart || DEPART_DEFAUT, true);
   suivre(etat.suivre);
   selectionner(-1); majLegendeGain();
