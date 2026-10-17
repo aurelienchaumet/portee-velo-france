@@ -10,7 +10,9 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <!-- Classement des 101 départements (phase 4, 16/10/2026) : surface atteinte en 15 min depuis la mairie du
      chef-lieu (tuiles/classement.json, chaine/scores.js, recalculé à chaque déploiement). Un clic ouvre la carte
-     (index.html) sur ce départ. Remplace à terme la vue France de france.html (anciennes tuiles). -->
+     (index.html) sur ce départ. Remplace à terme la vue France de france.html (anciennes tuiles).
+     17/10/2026 : « Toutes les communes » : médiane par département des scores des ~35 000 communes depuis leur mairie
+     (tuiles/scores/communes.json, chaine/scores_communes.js) ; mairies en points à partir du zoom 8. -->
 <style>
 :root{
   --abysse:#005267;
@@ -42,6 +44,7 @@ h2{font-size:.85rem;font-weight:600;color:var(--ardoise);margin:0 0 8px}
 .note{font-size:.83rem;color:var(--ardoise);margin:8px 0 0}
 .modes{display:flex;gap:4px;background:var(--brume);border-radius:10px;padding:4px}
 .modes button{flex:1;border:0;background:transparent;border-radius:7px;padding:8px 6px;font:600 .85rem var(--sans);color:var(--ardoise);cursor:pointer}
+.modes + .modes{margin-top:6px}
 .modes button[aria-pressed="true"]{background:var(--papier);color:var(--encre);box-shadow:0 1px 3px rgba(0,40,52,.18)}
 .legende{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;margin-top:4px}
 .legende .case{height:12px;border-radius:2px}
@@ -82,7 +85,7 @@ ol.classement .chiffre{font-variant-numeric:tabular-nums;font-weight:600}
 <aside class="panneau" aria-label="Classement">
   <header class="entete">
     <h1>À portée de vélo</h1>
-    <p>Surface atteinte à vélo en 15 minutes depuis la mairie du chef-lieu de chaque département. <a href="index.html">Ouvrir la carte</a></p>
+    <p><span id="chapeau">Surface atteinte à vélo en 15 minutes depuis la mairie du chef-lieu de chaque département.</span> <a href="index.html">Ouvrir la carte</a></p>
   </header>
   <div class="defile">
     <div class="bloc">
@@ -90,13 +93,17 @@ ol.classement .chiffre{font-variant-numeric:tabular-nums;font-weight:600}
         <button type="button" data-mode="tout" aria-pressed="true">Avec les routes</button>
         <button type="button" data-mode="amenage" aria-pressed="false">Sans les routes</button>
       </div>
+      <div class="modes" role="group" aria-label="Départ" id="departs" hidden>
+        <button type="button" data-depart="chef" aria-pressed="true">Chef-lieu</button>
+        <button type="button" data-depart="communes" aria-pressed="false">Toutes les communes</button>
+      </div>
       <p class="note" id="note-mode"></p>
     </div>
     <div class="bloc">
       <h2>Surface atteinte en 15 min (km²)</h2>
       <div class="legende" id="legende"></div>
       <div class="graduations" id="graduations"></div>
-      <p class="note">Cliquez sur un département pour ouvrir la carte sur la mairie de son chef-lieu.</p>
+      <p class="note" id="note-clic">Cliquez sur un département pour ouvrir la carte sur la mairie de son chef-lieu.</p>
     </div>
     <div class="bloc">
       <h2 id="titre-classement">Classement</h2>
@@ -130,7 +137,24 @@ ol.classement .chiffre{font-variant-numeric:tabular-nums;font-weight:600}
     return;
   }
   const scores = new Map(classement.departements.map(d => [d.dep, d]));
-  let mode = new URLSearchParams(location.hash.slice(1)).get("m") === "amenage" ? "amenage" : "tout";
+  const H = new URLSearchParams(location.hash.slice(1));
+  let mode = H.get("m") === "amenage" ? "amenage" : "tout";
+  // Scores des communes (facultatif : sans le fichier, seul le classement des chefs-lieux est proposé)
+  const communes = await fetch("tuiles/scores/communes.json").then(r => (r.ok ? r.json() : null)).catch(() => null);
+  let depart = communes && H.get("d") === "communes" ? "communes" : "chef";
+  const C = communes && communes.communes;
+  const nCommunes = n => `${n.toLocaleString("fr-FR")} commune${n > 1 ? "s" : ""}`;
+  const mediane = v => { const t = [...v].sort((a, b) => a - b), n = t.length; return n ? (n % 2 ? t[(n - 1) / 2] : (t[n / 2 - 1] + t[n / 2]) / 2) : NaN; };
+  // Médiane par département (DROM : code à 3 chiffres), pour chaque réseau
+  const parDep = new Map();
+  if (C) {
+    C.code.forEach((_, i) => { const d = C.dep[i]; (parDep.get(d) || parDep.set(d, []).get(d)).push(i); });
+    for (const [d, idx] of parDep) parDep.set(d, { n: idx.length, tout: mediane(idx.map(i => C.tout[i])), amenage: mediane(idx.map(i => C.amenage[i])),
+      nuls: idx.filter(i => C.amenage[i] === 0).length });
+  }
+  // Valeur affichée d'un département : score du chef-lieu, ou médiane de ses communes
+  const valeur = dep => (depart === "communes" ? parDep.get(dep)?.[mode] : scores.get(dep)?.[mode].km2);
+  $("#departs").hidden = !C;
 
   // Lien vers la carte, départ à la mairie du chef-lieu
   const lienCarte = d => `index.html${d.zone && d.zone !== "fr" ? `?zone=${d.zone}` : ""}#q=1&m=${mode}&d=${d.lat.toFixed(5)},${d.lon.toFixed(5)}`;
@@ -148,7 +172,10 @@ ol.classement .chiffre{font-variant-numeric:tabular-nums;font-weight:600}
     onEachFeature: (f, c) => {
       c.bindTooltip(() => {
         const s = scores.get(f.properties.dep);
-        return s ? `<div class="infobulle"><strong>${echapper(f.properties.nom)} (${f.properties.dep})</strong><br>${echapper(s.commune)} : ${fmtKm2(s[mode].km2)} km² en 15 min</div>` : "";
+        const m = parDep.get(f.properties.dep);
+        const ligne = depart === "communes" && m ? `Médiane de ${nCommunes(m.n)} : ${fmtKm2(m[mode])} km²<br>Chef-lieu, ${echapper(s.commune)} : ${fmtKm2(s[mode].km2)} km²`
+          : `${echapper(s.commune)} : ${fmtKm2(s[mode].km2)} km² en 15 min`;
+        return s ? `<div class="infobulle"><strong>${echapper(f.properties.nom)} (${f.properties.dep})</strong><br>${ligne}</div>` : "";
       }, { sticky: true });
       c.on("click", () => ouvrir(f.properties.dep));
     },
@@ -173,27 +200,58 @@ ol.classement .chiffre{font-variant-numeric:tabular-nums;font-weight:600}
     return { z, b, chemin };
   }).filter(Boolean);
 
+  // ---------- Mairies des communes (mode « Toutes les communes », à partir du zoom 8) ----------
+  const ZOOM_POINTS = 8, rendu = L.canvas({ padding: 0.3 }), points = L.layerGroup();
+  const zoneDe = code => (/^97[1-46]/.test(code) ? code.slice(0, 3) : "fr");
+  let marqueurs = null;
+  function majPoints() {
+    const voir = depart === "communes" && C && carte.getZoom() >= ZOOM_POINTS;
+    if (voir && !marqueurs) {
+      marqueurs = C.code.map((code, i) => L.circleMarker([C.lat[i], C.lon[i]], { renderer: rendu, radius: 4, weight: .8, color: "#fff", fillOpacity: .95 })
+        .bindTooltip(() => `<div class="infobulle"><strong>${echapper(C.nom[i])}</strong><br>${fmtKm2(C[mode][i])} km² en 15 min depuis la mairie</div>`)
+        .on("click", () => { const z = zoneDe(code); location.href = `index.html${z !== "fr" ? `?zone=${z}` : ""}#q=1&m=${mode}&d=${C.lat[i].toFixed(5)},${C.lon[i].toFixed(5)}`; })
+        .addTo(points));
+    }
+    if (marqueurs && voir) marqueurs.forEach((mk, i) => mk.setStyle({ fillColor: echelle(C[mode][i]) }));
+    if (voir) points.addTo(carte); else points.remove();
+    couche.setStyle({ fillOpacity: voir ? .3 : .85 });
+  }
+  carte.on("zoomend", majPoints);
+
   function majModes() {
     document.querySelectorAll("[data-mode]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.mode === mode)));
-    $("#note-mode").textContent = NOTES[mode];
-    const v = classement.departements.map(d => d[mode].km2);
+    document.querySelectorAll("[data-depart]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.depart === depart)));
+    const parCommunes = depart === "communes";
+    $("#note-mode").textContent = NOTES[mode] + (parCommunes ? " Valeur d'un département : médiane des scores de ses communes, chacune depuis sa mairie (geo.api.gouv.fr)." : "");
+    $("#chapeau").textContent = parCommunes ? "Surface atteinte à vélo en 15 minutes depuis la mairie de chaque commune : médiane par département."
+      : "Surface atteinte à vélo en 15 minutes depuis la mairie du chef-lieu de chaque département.";
+    $("#note-clic").textContent = parCommunes ? `Zoomez pour voir chaque commune ; un clic sur une mairie ouvre la carte depuis celle-ci.`
+      : "Cliquez sur un département pour ouvrir la carte sur la mairie de son chef-lieu.";
+    // Échelle : quantiles des départements (chefs-lieux), ou de toutes les communes (mêmes couleurs pour les points)
+    const v = parCommunes ? C[mode] : classement.departements.map(d => d[mode].km2);
     echelle = d3.scaleQuantile(v, PALETTE);
-    couche.setStyle(f => ({ fillColor: scores.has(f.properties.dep) ? echelle(scores.get(f.properties.dep)[mode].km2) : "#ccc" }));
+    couche.setStyle(f => ({ fillColor: valeur(f.properties.dep) >= 0 ? echelle(valeur(f.properties.dep)) : "#ccc" }));
     for (const e of encarts) {
-      const s = scores.get(e.z);
-      e.chemin.attr("fill", echelle(s[mode].km2));
-      e.b.title = `${DROM[e.z]} – ${s.commune} : ${fmtKm2(s[mode].km2)} km² en 15 min`;
+      const s = scores.get(e.z), m = parDep.get(e.z);
+      e.chemin.attr("fill", valeur(e.z) >= 0 ? echelle(valeur(e.z)) : "#ccc");
+      e.b.title = parCommunes && m ? `${DROM[e.z]} – médiane de ${nCommunes(m.n)} : ${fmtKm2(m[mode])} km²`
+        : `${DROM[e.z]} – ${s.commune} : ${fmtKm2(s[mode].km2)} km² en 15 min`;
     }
+    majPoints();
     $("#legende").innerHTML = PALETTE.map(c => `<span class="case" style="background:${c}"></span>`).join("");
     const bornes = [...echelle.quantiles(), d3.max(v)];
     $("#graduations").innerHTML = bornes.map(b => `<span><i>${fmtKm2(Math.round(b))}</i></span>`).join("");
-    const tries = [...classement.departements].sort((a, b) => b[mode].km2 - a[mode].km2);
+    const tries = classement.departements.filter(d => valeur(d.dep) >= 0).sort((a, b) => valeur(b.dep) - valeur(a.dep));
     $("#titre-classement").textContent = `Classement des ${tries.length} départements`;
-    $("#classement").innerHTML = tries.map((d, i) =>
-      `<li><button type="button" data-dep="${d.dep}"><span class="rang">${i + 1}</span><span>${echapper(d.commune)} <small>(${echapper(d.departement)})</small></span><span class="chiffre">${fmtKm2(d[mode].km2)} km²</span></button></li>`).join("");
-    history.replaceState(null, "", mode === "tout" ? location.pathname : "#m=amenage");
+    $("#classement").innerHTML = tries.map((d, i) => {
+      const lib = parCommunes ? `${echapper(d.departement)} <small>(${nCommunes(parDep.get(d.dep).n)})</small>` : `${echapper(d.commune)} <small>(${echapper(d.departement)})</small>`;
+      return `<li><button type="button" data-dep="${d.dep}"><span class="rang">${i + 1}</span><span>${lib}</span><span class="chiffre">${fmtKm2(valeur(d.dep))} km²</span></button></li>`;
+    }).join("");
+    const h = [mode === "amenage" ? "m=amenage" : "", parCommunes ? "d=communes" : ""].filter(Boolean).join("&");
+    history.replaceState(null, "", h ? `#${h}` : location.pathname);
   }
   document.querySelectorAll("[data-mode]").forEach(b => b.addEventListener("click", () => { mode = b.dataset.mode; majModes(); }));
+  document.querySelectorAll("[data-depart]").forEach(b => b.addEventListener("click", () => { depart = b.dataset.depart; majModes(); }));
   $("#classement").addEventListener("click", ev => { const b = ev.target.closest("[data-dep]"); if (b) ouvrir(b.dataset.dep); });
   $("#sources").textContent = `Départ : mairie du chef-lieu (en Guadeloupe, Les Abymes, commune la plus peuplée, et non Basse-Terre). `
     + `Réseau OpenStreetMap, tuiles du ${String(classement.tuiles || "").slice(0, 10).split("-").reverse().join("/")} ; calcul du ${classement.genere.slice(0, 10).split("-").reverse().join("/")}.`;

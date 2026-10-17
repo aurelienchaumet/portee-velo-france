@@ -13,3 +13,4 @@ dist/
 # Métropole : release tuiles-fr (trop lourde pour git), récupérée par deployer.yml
 tuiles/fr/
 tuiles/classement.json
+tuiles/scores/
