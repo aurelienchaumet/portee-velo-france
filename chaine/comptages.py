@@ -312,15 +312,18 @@ def traiter_filosofi(chemin, grille, sous=10):
     cid = colonne(df, "idcar_200m", "idcar_1km", "idcar", "id", obligatoire=False)
     if cid is not None:
         ids = df[cid].astype(str)
+        # « CRS3035RES200mN2029800E4252400 » ; DROM (Filosofi 2019) : CRS5490 (Martinique), CRS2975 (Réunion)
         m = ids.str.extract(r"RES(\d+)m.*?N(\d+)E(\d+)")
         if m.isna().any(axis=None):
             sys.exit(f"Identifiants de carreau illisibles, ex. {ids.iloc[0]!r}")
         res = m[0].astype(float).to_numpy()
         y0, x0 = m[1].astype(float).to_numpy(), m[2].astype(float).to_numpy()
+        crs = ids.str.extract(r"^CRS(\d+)")[0].fillna("3035").astype(int).to_numpy()
     elif "geometry" in df.columns:
         b = df.to_crs(3035).geometry.bounds
         x0, y0 = b["minx"].to_numpy(), b["miny"].to_numpy()
         res = (b["maxx"] - b["minx"]).round().to_numpy()
+        crs = np.full(len(df), 3035)
     else:
         sys.exit("Filosofi : ni identifiant de carreau ni géométrie")
     couches = {}
@@ -336,9 +339,15 @@ def traiter_filosofi(chemin, grille, sous=10):
     f = (np.arange(sous) + 0.5) / sous
     fx, fy = np.meshgrid(f, f)
     fx, fy = fx.ravel(), fy.ravel()
-    t = Transformer.from_crs(3035, 4326, always_xy=True)
+    def vers_wgs84(x, y, codes):
+        """Coordonnées métriques des carreaux (chacun dans le système de son identifiant) → lon, lat."""
+        lon, lat = np.empty(len(x)), np.empty(len(x))
+        for c in np.unique(codes):
+            k = codes == c
+            lon[k], lat[k] = Transformer.from_crs(int(c), 4326, always_xy=True).transform(x[k], y[k])
+        return lon, lat
     # Préfiltre grossier : centre du carreau dans une tuile publiée (avec marge d'une tuile, les carreaux du bord)
-    lonc, latc = t.transform(x0 + res / 2, y0 + res / 2)
+    lonc, latc = vers_wgs84(x0 + res / 2, y0 + res / 2, crs)
     gi, gj, _ = grille.cellules(lonc, latc)
     proches = np.array([any((gi[i] // grille.C + a, gj[i] // grille.C + b) in grille.tuiles
                             for a in (-1, 0, 1) for b in (-1, 0, 1)) for i in range(len(gi))])
@@ -346,7 +355,7 @@ def traiter_filosofi(chemin, grille, sous=10):
     print(f"  {len(idx):,} carreaux dans l'emprise sur {len(df):,}")
     X = (x0[idx, None] + fx[None, :] * res[idx, None]).ravel()
     Y = (y0[idx, None] + fy[None, :] * res[idx, None]).ravel()
-    lon, lat = t.transform(X, Y)
+    lon, lat = vers_wgs84(X, Y, np.repeat(crs[idx], len(fx)))
     gi, gj, dedans = grille.cellules(lon, lat)
     sorties = {}
     for cle, (v, lib, unite) in couches.items():

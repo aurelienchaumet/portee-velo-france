@@ -113,6 +113,15 @@ jobs:
               https://static.data.gouv.fr/resources/revenus-pauvrete-et-niveau-de-vie-donnees-carroyees-dispositif-fichier-localise-social-et-fiscal-filosofi/20260309-120901/carreaux-200m-met-3035-2021.parquet
             fil=(--filosofi cache/insee/filosofi2021.parquet --millesime-filosofi 2021)
           fi
+          # Martinique et Réunion : Filosofi 2019 seulement (zip Insee → 7z → carreaux_200m_<mart|reun>.csv, carreaux
+          # en EPSG 5490 / 2975, lus d'après leur identifiant). Guadeloupe, Guyane, Mayotte : pas de carroyage.
+          drom=$(case "${{ matrix.t.grille }}" in 972) echo mart;; 974) echo reun;; esac)
+          if [ -n "$drom" ]; then
+            curl -sSfL --retry 4 -o cache/insee/filosofi2019.zip \
+              https://www.insee.fr/fr/statistiques/fichier/7655475/Filosofi2019_carreaux_200m_csv.zip
+            (cd cache/insee && unzip -oq filosofi2019.zip && 7z x -y Filosofi2019_carreaux_200m_csv.7z "carreaux_200m_$drom.csv" >/dev/null)
+            fil=(--filosofi "cache/insee/carreaux_200m_$drom.csv" --millesime-filosofi 2019)
+          fi
           /usr/bin/time -v -o ../mesure-acces.txt python -I -X utf8 comptages_blocs.py --tuiles "../${{ matrix.t.sortie }}" \
             --bpe cache/insee/BPE25.parquet --millesime-bpe 2025 "${fil[@]}"
           grep -E "Maximum resident|Elapsed" ../mesure-acces.txt
