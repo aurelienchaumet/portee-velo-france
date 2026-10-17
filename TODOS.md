@@ -8,14 +8,14 @@
 - **Écart de modèle à reporter (10/10/2026)** : en mode pistes, la version France autorise les segments de route de moins de 30 m au contact d'une piste (traversées) et n'accroche le départ qu'à un morceau de pistes d'au moins 200 nœuds (`CFG.traverseeMaxM`, `CFG.morceauMinNoeuds`, choix d'Aurélien : D1 de la session). La carte Marennes-Oléron ne le fait pas encore : à reporter au moment de la réunification.
 - **Depends on** : version France stable.
 
-## Étendre aux 35 000 communes
+## ~~Étendre aux 35 000 communes~~ (fait le 17/10/2026 : `chaine/scores_communes.js`, workflow `scores_communes.yml`, classement « Toutes les communes »)
 - **What** : score de chaque commune (km² terrestres atteints en 15 min depuis la mairie), médiane par département, couche « écart pistes / toutes voies ».
 - **Why** : classement plus juste que le seul chef-lieu, et vraie carte « où le vélo dépend de la route ».
 - **Pros** : même chaîne, seulement plus de départs. **Cons** : PBF France entier, tuiles nationales.
 - **Context** : idée du second avis de /office-hours (10/10/2026), écartée pour la v1 (chef-lieu seul).
 - **Depends on** : v1 en ligne, passage de l'hébergement à PMTiles ou Cloudflare R2.
 
-## Rédiger la méthodologie dans le README (à la fin du codage)
+## ~~Rédiger la méthodologie dans le README~~ (fait le 17/10/2026 ; à tenir à jour)
 - **What** : README public avec la méthodologie complète et des schémas de l'ensemble du fonctionnement (chaîne PBF → GeoParquet → graphe → tuiles → navigateur ; format de tuile ; recollage de fenêtre ; Dijkstra borné ; scores des 96 chefs-lieux ; limites connues).
 - **Why** : demande d'Aurélien (10/10/2026) ; le dépôt est public et le README est la porte d'entrée.
 - **Context** : schémas en ASCII ou Mermaid (rendu natif par GitHub). Reprendre les diagrammes du design et de la revue d'ingénierie, mis à jour avec ce qui a réellement été codé.
