@@ -251,3 +251,17 @@ Demande d'Aurélien : avant de régler les mises à jour, aider les visiteurs à
 - Géolocalisation centrée dans la partie visible de la carte (`centrerVisible`, d'après la place réelle du panneau :
   au-dessus sur téléphone, à droite sinon ; 17/10, point caché sous l'encart signalé par Aurélien). Aussi à l'ouverture
   en métropole (départ tiré au sort ou du lien), et pour une adresse choisie hors de la partie visible (`estVisible`).
+
+## Matinée du 17/10 : README, scores des communes, Guyane
+
+- **README** réécrit pour la version France entière (méthode, territoires, tuilage par bandes, format, calcul, blocs,
+  diagnostics, classement, Actions et Cloudflare, contribution OSM), 6 schémas Mermaid vérifiés avec mermaid-cli.
+- **Scores des 34 875 communes** (DROM compris ; COM 975/977/978 et 98x exclues) : `chaine/scores_communes.js`, mairies
+  du champ `mairie` de geo.api.gouv.fr (présent pour toutes), même calcul que `scores.js` (contrôlé : identique pour
+  les chefs-lieux). Workflow `scores_communes.yml` (push de `chaine/a_scores_communes.json`) : 6 parts d'environ
+  1 min 30 → release `diag-scores` → `tuiles/scores/communes.json` (1,9 Mo). Médiane nationale 31,2 km² avec les
+  routes ; sans les routes, environ 28 000 communes sans piste à portée de la mairie. Un seul score nul avec les
+  routes : Martignas-sur-Jalle (33273), à regarder (mairie hors réseau ?).
+- `classement.html` : choix « Chef-lieu / Toutes les communes » (médiane par département ; échelle = quantiles des
+  communes ; mairies en points à partir du zoom 8, clic → carte depuis la mairie ; `#d=communes`).
+- Guyane : ouverture centrée sur Cayenne au zoom 10 (plus la vue de tout le département).
