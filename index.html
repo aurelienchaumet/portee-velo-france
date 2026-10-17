@@ -706,6 +706,17 @@ document.getElementById("replier").addEventListener("click", e => {
     const p = carte.createPane(nom); p.style.zIndex = z; if (nom !== "trace" && nom !== "d4" && nom !== "crx") p.style.pointerEvents = "none";
   }
   const contour = L.geoJSON(zone, { interactive: false, style: { color: "#005267", weight: 1.3, opacity: .7, fill: false } }).addTo(carte);
+  // DROM (17/10/2026) : le Plan IGN n'y couvre qu'un rectangle, blanc au-delà ; les îles semblaient flotter dans le
+  // vide. Mer peinte autour du territoire dans le gris qu'a la mer du Plan IGN sous le filtre du fond
+  // (.leaflet-tile-pane : 211, 211, 211), juste au-dessus des tuiles : la carte paraît continue.
+  if (ZONE.startsWith("97")) {
+    carte.createPane("mer").style.zIndex = 250;
+    carte.getPane("mer").style.pointerEvents = "none";
+    const polys = zone.type === "Polygon" ? [zone.coordinates] : zone.type === "MultiPolygon" ? zone.coordinates : [];
+    const exterieur = [[-180, -85], [180, -85], [180, 85], [-180, 85], [-180, -85]];
+    L.geoJSON({ type: "Polygon", coordinates: [exterieur, ...polys.map(p => p[0])] },
+      { pane: "mer", interactive: false, style: { stroke: false, fillColor: "#d3d3d3", fillOpacity: 1 } }).addTo(carte);
+  }
   const etroit = () => window.matchMedia("(max-width:720px)").matches;
   const marges = () => etroit() ? { paddingBottomRight: [0, window.innerHeight * .5] } : { paddingTopLeft: [400, 20], paddingBottomRight: [20, 20] };
 
