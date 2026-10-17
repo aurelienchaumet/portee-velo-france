@@ -197,7 +197,29 @@ BD TOPO pour les RD : **pas branchée (option prudente, à décider)**. Mesure d
 nationales : 369 912 km d'arêtes marquées RD par la `ref` OSM, pour ~378 000 km de RD officielles (≈ 98 %).
 L'appariement BD TOPO (téléchargement IGN par département, `marquer_rd.py`) apporterait peu pour un gros chantier.
 
-Phases suivantes : voir la spec (§7) — diagnostics par EPCI et par commune.
+## Diagnostics par EPCI (17/10, demande d'Aurélien)
+
+Générateur écrit ici (celui du SIT n'est dans aucun dépôt accessible ; ses diagnostics publiés ne sont pas repris :
+règle du projet). Format = celui que la page lisait déjà (`installerDiag`, `epci.json`, `diagnostic_epci_<code>.json`).
+- `chaine/communes_epci.py` : communes et EPCI de geo.api.gouv.fr (COG Insee, contours Admin Express) → commune de
+  chaque cellule habitée (`cellules.bin`), `communes.json`, contours simplifiés des EPCI (`epci.json`).
+- `chaine/diagnostics.js calculer` : par blocs de 4 × 4 tuiles + couronne d'une tuile, pour chaque fonction, trois
+  Dijkstra multi-sources sur le graphe transposé depuis tous les équipements (plus rapide, pistes, tranquille) ;
+  cas par cellule avec la règle de la teinte bleue (`teinteConfort`) appliquée aux plus proches ; maillons = arêtes
+  exposées des trajets « route seulement », chargées d'habitants. Sans la tolérance de 300 m autour du départ :
+  un peu plus sévère que le panneau d'un départ. `assembler` : un fichier par EPCI (cellules, communes, maillons).
+- Workflow `diagnostiquer.yml` (push de `chaine/a_diagnostiquer.json`) : communes → calcul en 6 parts (métropole)
+  → assemblage → release `diag-<zone>` → `deployer.yml` l'ajoute aux tuiles. Territoires : fr, 972, 974.
+- Essai local (2 parts sur 40, faux découpage par département) : 4 s par bloc, 11,9 M cellules habitées en
+  métropole ; page vérifiée (bilan, fonctions, maillons, carte). Page : `epci.json` lu à l'ouverture de Services.
+
+**Fait (run 39016512679, 17/10 matin)** : 34 746 communes, 1 232 EPCI (métropole), 0 cellule sans commune ;
+calcul en 6 parts de ~5 min ; 1 232 diagnostics (232 Mo, le plus gros 2 Mo : 200054807) + Martinique et Réunion ;
+release `diag-fr|972|974`, déployée (10 097 fichiers). Contrôle : Métropole du Grand Paris 88 % des habitants avec
+toutes les fonctions tranquillement, Paris 1 980 110 habitants. Attention : un déploiement lancé par un run plus
+ancien (tuilage parti avant le changement de `deployer.yml`) a d'abord écrasé les diagnostics ; relancé à la main.
+
+Phases suivantes : voir la spec (§7) — diagnostics par commune (35 000), COM.
 
 ## Boucle de contribution OSM, niveaux 1 et 2 (17/10/2026, branche `contrib-osm`)
 

@@ -1,7 +1,7 @@
 # Aperçu d'une branche de travail sur Cloudflare Workers, sans toucher au site en ligne (17/10/2026).
 # wrangler versions upload crée une version non déployée, servie à https://<branche>-portee-velo.<compte>.workers.dev
 # (alias de preview). Le site en ligne reste la dernière version déployée par deployer.yml (france-entiere).
-# Mêmes données que deployer.yml : tuiles du dépôt, plus les releases tuiles-* (métropole).
+# Mêmes données que deployer.yml : tuiles du dépôt, plus les releases tuiles-* (métropole) et diag-* (EPCI).
 name: Aperçu
 
 on:
@@ -39,6 +39,12 @@ jobs:
             zone=${tag#tuiles-}
             gh release download "$tag" -p "$tag.tar" -O "/tmp/$tag.tar"
             rm -rf "tuiles/$zone" && mkdir -p "tuiles/$zone" && tar -xf "/tmp/$tag.tar" -C "tuiles/$zone"
+          done
+          # Diagnostics par EPCI (release diag-<zone>), comme deployer.yml
+          for tag in $(gh release list --limit 100 --json tagName -q '.[].tagName' | grep '^diag-' || true); do
+            zone=${tag#diag-}
+            gh release download "$tag" -p "$tag.tar" -O "/tmp/$tag.tar"
+            mkdir -p "tuiles/$zone" && tar -xf "/tmp/$tag.tar" -C "tuiles/$zone"
           done
       - run: node chaine/scores.js tuiles
       - run: ./deploiement/construire.sh

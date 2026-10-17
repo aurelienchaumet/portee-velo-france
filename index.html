@@ -1786,7 +1786,9 @@ document.getElementById("replier").addEventListener("click", e => {
     if (epciDiag.lus.has(code)) { installer(epciDiag.lus.get(code)); return; }
     fetch(`${DOSSIER}diagnostic_epci_${code}.json`).then(r => (r.ok ? r.json() : null)).then(installer).catch(() => {});
   }
-  if (!masqueZone)
+  // Contours des EPCI (communes_epci.py) lus à la première ouverture de l'onglet Services (quelques Mo en métropole)
+  let epciCharge = null;
+  const chargerEpci = () => epciCharge || (epciCharge = masqueZone ? Promise.resolve() :
     fetch(DOSSIER + "epci.json").then(r => (r.ok ? r.json() : null)).then(E => {
       if (!E || !Array.isArray(E.epci)) return;
       epciDiag.liste = E.epci.map(e => {
@@ -1794,7 +1796,7 @@ document.getElementById("replier").addEventListener("click", e => {
         return { ...e, polygones, bornes: [Math.min(...pts.map(p => p[0])), Math.min(...pts.map(p => p[1])), Math.max(...pts.map(p => p[0])), Math.max(...pts.map(p => p[1]))] };
       });
       majEpci();
-    }).catch(() => {});
+    }).catch(() => {}));
   function acces_W(D) { return Math.round(360 / index.grille.dlon); }   // largeur de la grille France (comptages.py)
   function afficherDiag() {
     const D = diag.D, F = D.fonctions, f = diag.f, h = D.habitants;
@@ -2043,7 +2045,7 @@ document.getElementById("replier").addEventListener("click", e => {
     if (q !== 2 && d4.actif) basculerD4(false);
     if (q !== 2) [0, 1].forEach(c => { if (crx.actifs[c]) basculerCrx(c, false); });
     if (q !== 4 && diag.actif) basculerDiag(false);
-    if (q === 4 && !masqueZone) majEpci();
+    if (q === 4 && !masqueZone) chargerEpci().then(majEpci);
     if (q === 4 && diag.D && !diag.actif) basculerDiag(true);
     if (q === 4 && q !== avant) {                // comptages et équipements, mis en attente hors de cet onglet
       if (accesBlocs) chargerAccesBlocs().then(() => { afficherAcces(); dessinerEquipements(); });
