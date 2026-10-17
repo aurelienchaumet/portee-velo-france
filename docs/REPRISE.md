@@ -213,4 +213,10 @@ règle du projet). Format = celui que la page lisait déjà (`installerDiag`, `e
 - Essai local (2 parts sur 40, faux découpage par département) : 4 s par bloc, 11,9 M cellules habitées en
   métropole ; page vérifiée (bilan, fonctions, maillons, carte). Page : `epci.json` lu à l'ouverture de Services.
 
+**Fait (run 39016512679, 17/10 matin)** : 34 746 communes, 1 232 EPCI (métropole), 0 cellule sans commune ;
+calcul en 6 parts de ~5 min ; 1 232 diagnostics (232 Mo, le plus gros 2 Mo : 200054807) + Martinique et Réunion ;
+release `diag-fr|972|974`, déployée (10 097 fichiers). Contrôle : Métropole du Grand Paris 88 % des habitants avec
+toutes les fonctions tranquillement, Paris 1 980 110 habitants. Attention : un déploiement lancé par un run plus
+ancien (tuilage parti avant le changement de `deployer.yml`) a d'abord écrasé les diagnostics ; relancé à la main.
+
 Phases suivantes : voir la spec (§7) — diagnostics par commune (35 000), COM.
