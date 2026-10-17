@@ -12,6 +12,7 @@ on:
       - index.html
       - coeur.js
       - osm-contrib.js
+      - classement.html
       - tuiles/**
       - deploiement/**
       - wrangler.jsonc

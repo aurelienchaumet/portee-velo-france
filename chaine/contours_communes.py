@@ -5,7 +5,8 @@ scores_communes.yml. Tous les contours sont simplifiés ensemble (shapely.covera
 communes restent communes, ni trou ni chevauchement entre voisines), coordonnées à 4 décimales (~10 m).
 
 Sortie, dans --sortie : <dep>.json (GeoJSON, propriété c = code INSEE, joint aux scores de communes.json par la page)
-et index.json ({dep: [ouest, sud, est, nord]}) pour ne charger que les départements visibles.
+et index.json ({dep: [ouest, sud, est, nord]}) pour ne charger que les départements visibles ; france.json : toutes
+les communes en une fois, plus simplifiées (~400 m, 3 décimales, ~2 Mo compressé), pour la vue d'ensemble.
 
 Usage (depuis chaine/) :
   python -I -X utf8 contours_communes.py --communes 'cache/geo/communes_*.geojson' --sortie /tmp/scores/contours
@@ -19,6 +20,8 @@ import shapely
 
 TOLERANCE_DEG = 0.0006         # ~50 m : assez fin pour les petites communes, léger (≈ 100 à 400 Ko par département)
 PRECISION = 4
+TOLERANCE_FRANCE_DEG = 0.005   # vue d'ensemble (classement.html sous le zoom 9) : 35 000 communes lisibles et légères
+PRECISION_FRANCE = 3
 
 
 def main():
@@ -49,6 +52,11 @@ def main():
         w, s_, e, n = shapely.total_bounds(simples[sel])
         index[dep] = [round(w, 3), round(s_, 3), round(e, 3), round(n, 3)]
         total += (sortie / f"{dep}.json").stat().st_size
+    # Vue d'ensemble : toutes les communes, plus simplifiées, en un fichier
+    grossiers = shapely.set_precision(shapely.coverage_simplify(geoms, TOLERANCE_FRANCE_DEG), 10 ** -PRECISION_FRANCE)
+    (sortie / "france.json").write_text(json.dumps({"type": "FeatureCollection", "features": [
+        {"type": "Feature", "properties": {"c": ft["properties"]["code"]}, "geometry": json.loads(shapely.to_geojson(g))}
+        for ft, g in zip(feats, grossiers) if not g.is_empty]}, separators=(",", ":")), "utf-8")
     (sortie / "index.json").write_text(json.dumps(index, separators=(",", ":")), "utf-8")
     print(f"→ {sortie} : {len(index)} départements, {total / 1e6:.1f} Mo")
 

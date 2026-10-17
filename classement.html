@@ -12,7 +12,7 @@
      chef-lieu (tuiles/classement.json, chaine/scores.js, recalculé à chaque déploiement). Un clic ouvre la carte
      (index.html) sur ce départ. Remplace à terme la vue France de france.html (anciennes tuiles).
      17/10/2026 : « Toutes les communes » : médiane par département des scores des ~35 000 communes depuis leur mairie
-     (tuiles/scores/communes.json, chaine/scores_communes.js) ; communes en aplats à partir du zoom 8 (tuiles/scores/contours/). -->
+     (tuiles/scores/communes.json, chaine/scores_communes.js) ; communes en aplats (tuiles/scores/contours/ : france.json allégé, puis par département à partir du zoom 9). -->
 <style>
 :root{
   --abysse:#005267;
@@ -200,48 +200,68 @@ ol.classement .chiffre{font-variant-numeric:tabular-nums;font-weight:600}
     return { z, b, chemin };
   }).filter(Boolean);
 
-  // ---------- Communes en aplats (mode « Toutes les communes », à partir du zoom 8) ----------
-  // Contours par département (tuiles/scores/contours/<dep>.json, chaine/contours_communes.py), lus seulement pour les
-  // départements visibles ; couleur = score de la commune, même échelle que la légende
-  const ZOOM_COMMUNES = 8, rendu = L.canvas({ padding: 0.3 }), aplats = L.layerGroup();
+  // ---------- Communes en aplats (mode « Toutes les communes ») ----------
+  // Vue d'ensemble : toutes les communes d'un fichier allégé (tuiles/scores/contours/france.json, ~400 m) ; à partir du
+  // zoom 9, contours détaillés par département (<dep>.json, ~50 m), lus seulement pour les départements visibles.
+  // Couleur = score de la commune, même échelle que la légende ; limites des départements tracées par-dessus.
+  const ZOOM_DETAIL = 9, rendu = L.canvas({ padding: 0.3 }), aplats = L.layerGroup(), detail = L.layerGroup();
+  const limites = L.geoJSON(departements, { interactive: false, style: { color: "#fff", weight: 1.6, opacity: .9, fill: false } });
   const zoneDe = code => (/^97[1-46]/.test(code) ? code.slice(0, 3) : "fr");
   const indice = C ? new Map(C.code.map((c, i) => [c, i])) : new Map();
-  let contoursIndex, contoursLus = new Map();
+  let national = null, contoursIndex, contoursLus = new Map();
   const styleCommune = f => { const i = indice.get(f.properties.c);
-    return { fillColor: i >= 0 ? echelle(C[mode][i]) : "#ccc", fillOpacity: .85, color: "#fff", weight: .5 }; };
+    return { fillColor: i >= 0 ? echelle(C[mode][i]) : "#ccc", fillOpacity: .9, color: "#fff", weight: .3, opacity: .7 }; };
+  // Vue d'ensemble sans trait entre communes : à cette échelle, 35 000 liserés blancs délavaient la carte
+  const styleNational = f => ({ ...styleCommune(f), stroke: false });
+  const surCommune = (f, c) => {
+    const i = indice.get(f.properties.c);
+    if (!(i >= 0)) return;
+    c.bindTooltip(() => `<div class="infobulle"><strong>${echapper(C.nom[i])}</strong><br>${fmtKm2(C[mode][i])} km² en 15 min depuis la mairie</div>`, { sticky: true });
+    c.on("click", () => { const z = zoneDe(C.code[i]); location.href = `index.html${z !== "fr" ? `?zone=${z}` : ""}#q=1&m=${mode}&d=${C.lat[i].toFixed(5)},${C.lon[i].toFixed(5)}`; });
+  };
+  const lire = u => fetch(u).then(r => (r.ok ? r.json() : null)).catch(() => null);
   async function majPoints() {
-    const voir = depart === "communes" && C && carte.getZoom() >= ZOOM_COMMUNES;
-    if (!voir) { aplats.remove(); couche.addTo(carte); return; }
-    couche.remove(); aplats.addTo(carte);
-    if (contoursIndex === undefined)
-      contoursIndex = await fetch("tuiles/scores/contours/index.json").then(r => (r.ok ? r.json() : null)).catch(() => null);
+    const voir = depart === "communes" && C;
+    if (!voir) { aplats.remove(); limites.remove(); couche.addTo(carte); return; }
+    couche.remove(); aplats.addTo(carte); limites.addTo(carte);
+    const fin = carte.getZoom() >= ZOOM_DETAIL;
+    if (!fin) {
+      detail.remove();
+      if (national === null) {                 // une seule lecture ; false si le fichier manque
+        national = "en cours";
+        $("#note-clic").textContent = "Chargement des 35 000 communes…";
+        const G = await lire("tuiles/scores/contours/france.json");
+        national = G ? L.geoJSON(G, { renderer: rendu, style: styleNational, onEachFeature: surCommune }) : false;
+        majModes();
+        return;
+      }
+      if (national && national !== "en cours") national.addTo(aplats);
+      return;
+    }
+    if (national && national !== "en cours") national.remove();
+    detail.addTo(aplats);
+    if (contoursIndex === undefined) contoursIndex = await lire("tuiles/scores/contours/index.json");
     if (!contoursIndex) return;
     const b = carte.getBounds();
     for (const [dep, [w, sud, e, n]] of Object.entries(contoursIndex)) {
       if (contoursLus.has(dep) || e < b.getWest() || w > b.getEast() || n < b.getSouth() || sud > b.getNorth()) continue;
       contoursLus.set(dep, null);
-      fetch(`tuiles/scores/contours/${dep}.json`).then(r => (r.ok ? r.json() : null)).catch(() => null).then(G => {
-        if (!G) return;
-        contoursLus.set(dep, L.geoJSON(G, { renderer: rendu, style: styleCommune, onEachFeature: (f, c) => {
-          const i = indice.get(f.properties.c);
-          if (!(i >= 0)) return;
-          c.bindTooltip(() => `<div class="infobulle"><strong>${echapper(C.nom[i])}</strong><br>${fmtKm2(C[mode][i])} km² en 15 min depuis la mairie</div>`, { sticky: true });
-          c.on("click", () => { const z = zoneDe(C.code[i]); location.href = `index.html${z !== "fr" ? `?zone=${z}` : ""}#q=1&m=${mode}&d=${C.lat[i].toFixed(5)},${C.lon[i].toFixed(5)}`; });
-        } }).addTo(aplats));
+      lire(`tuiles/scores/contours/${dep}.json`).then(G => {
+        if (G) contoursLus.set(dep, L.geoJSON(G, { renderer: rendu, style: styleCommune, onEachFeature: surCommune }).addTo(detail));
       });
     }
   }
-  const recolorer = () => contoursLus.forEach(l => l && l.setStyle(styleCommune));
-  carte.on("moveend", majPoints);
+  const recolorer = () => { contoursLus.forEach(l => l && l.setStyle(styleCommune)); if (national && national !== "en cours") national.setStyle(styleNational); };
+  carte.on("zoomend moveend", majPoints);
 
   function majModes() {
     document.querySelectorAll("[data-mode]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.mode === mode)));
     document.querySelectorAll("[data-depart]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.depart === depart)));
     const parCommunes = depart === "communes";
     $("#note-mode").textContent = NOTES[mode] + (parCommunes ? " Valeur d'un département : médiane des scores de ses communes, chacune depuis sa mairie (geo.api.gouv.fr)." : "");
-    $("#chapeau").textContent = parCommunes ? "Surface atteinte à vélo en 15 minutes depuis la mairie de chaque commune : médiane par département."
+    $("#chapeau").textContent = parCommunes ? "Surface atteinte à vélo en 15 minutes depuis la mairie de chaque commune ; départements classés par leur médiane."
       : "Surface atteinte à vélo en 15 minutes depuis la mairie du chef-lieu de chaque département.";
-    $("#note-clic").textContent = parCommunes ? `Zoomez pour voir chaque commune ; un clic sur une commune ouvre la carte depuis sa mairie.`
+    $("#note-clic").textContent = parCommunes ? `Chaque commune est colorée selon la surface atteinte depuis sa mairie ; zoomez pour des contours plus précis. Un clic ouvre la carte depuis la mairie.`
       : "Cliquez sur un département pour ouvrir la carte sur la mairie de son chef-lieu.";
     // Échelle : quantiles des départements (chefs-lieux), ou de toutes les communes (mêmes couleurs pour les points)
     const v = parCommunes ? C[mode] : classement.departements.map(d => d[mode].km2);
