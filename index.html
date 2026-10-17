@@ -94,6 +94,19 @@ h2{font-size:.85rem;font-weight:600;color:var(--ardoise);margin:0 0 8px}
 .bouton:hover{background:#eef8fb}
 .bouton[aria-pressed="true"]{background:var(--abysse);color:#fff}
 #suivre{margin-bottom:10px}
+/* Fiche « Vérifier dans OpenStreetMap » (osm-contrib.js) */
+#osm-verifier{margin-bottom:10px}
+.osm-fiche{border:1px solid var(--brume);border-radius:8px;padding:8px 10px;margin-bottom:10px;font-size:.84rem}
+.osm-fiche h3{font-size:.86rem;margin:6px 0 4px}
+.osm-lu{margin:2px 0 6px}
+.osm-recent{margin:2px 0 6px;color:#7B2CBF;font-weight:600}
+.osm-tags{border-collapse:collapse;width:100%;font-size:.78rem;margin:4px 0}
+.osm-tags th{text-align:left;font-weight:600;color:var(--ardoise);padding:1px 8px 1px 0;white-space:nowrap;vertical-align:top}
+.osm-tags td{padding:1px 0;word-break:break-word}
+.osm-indices{margin:4px 0;padding-left:18px}
+.osm-indices li{margin:3px 0}
+.osm-actions{display:flex;flex-direction:column;gap:4px;margin-top:8px}
+.osm-actions .lien-action{margin-top:0;text-align:left}
 .credits{font-size:.75rem;color:var(--ardoise);padding-top:10px}
 .credits p{margin:0 0 6px}
 .credits a{color:var(--abysse)}
@@ -412,7 +425,7 @@ dialog.apropos .fermer{position:absolute;top:10px;right:10px;width:34px;height:3
     </div>
 
     <div class="bloc" data-q="2">
-      <p class="note" style="margin:0">En bleu, on y va tranquillement, presque aussi vite que par la route. En orange, il faut passer par une route exposée. Les traits noirs marquent les tronçons qui coincent depuis ce départ ; pour mesurer ce qu'apporterait leur aménagement : onglet Simuler.</p>
+      <p class="note" style="margin:0">En bleu, on y va tranquillement, presque aussi vite que par la route. En orange, il faut passer par une route exposée. Les traits noirs marquent les tronçons qui coincent depuis ce départ ; pour mesurer ce qu'apporterait leur aménagement : onglet Simuler. Un trait noir sur une voie déjà aménagée ? Elle est peut-être mal décrite dans OpenStreetMap : « Vérifier une voie dans OpenStreetMap », plus bas.</p>
       <p class="note" id="q3-ailleurs" hidden></p>   <!-- classement des maillons (Oléron) : propre au SIT, absent ici -->
     </div>
 
@@ -445,6 +458,7 @@ dialog.apropos .fermer{position:absolute;top:10px;right:10px;width:34px;height:3
       </div>
       <p class="note" id="sim-consigne" hidden>Cliquez pour poser les sommets (point plein = raccordé à une voie à moins de 25 m). La piste est aussi raccordée à chaque voie qu'elle croise (petit point). Double-clic ou Entrée pour terminer, Retour arrière pour retirer le dernier sommet, Échap pour annuler. <button type="button" class="lien-action" id="sim-terminer">Terminer</button></p>
       <p class="note" id="sim-consigne-voie" hidden>Cliquez sur une route : elle devient piste jusqu'aux deux carrefours les plus proches. Cliquez la suite pour la prolonger. Échap ou le bouton pour arrêter.</p>
+      <p class="note">La piste que vous simulez existe déjà sur le terrain ? Elle manque dans OpenStreetMap, ou y est mal décrite : « Vérifier une voie dans OpenStreetMap », plus bas, pour l'ajouter ou la signaler.</p>
       <!-- Liste repliable (12/10/2026) : avec une dizaine de tronçons, elle repoussait tout le reste du panneau ; repliée
            par défaut et à chaque tracé (13/10/2026), pour garder Avant / Après / Gain en vue -->
       <details class="sim-replier" id="sim-details" hidden>
@@ -505,6 +519,9 @@ dialog.apropos .fermer{position:absolute;top:10px;right:10px;width:34px;height:3
     <!-- Socle commun : suivi, consigne et trajet, après le contenu de la question -->
     <div class="bloc socle" aria-live="polite">
       <button type="button" class="bouton" id="suivre" aria-pressed="false" hidden>Suivre la souris</button>
+      <!-- Boucle de contribution OSM (17/10/2026, osm-contrib.js) : fiche de la voie cliquée, liens vers iD et les notes -->
+      <button type="button" class="bouton petit" id="osm-verifier" aria-pressed="false" title="Voir comment OpenStreetMap décrit une voie, et la corriger">Vérifier une voie dans OpenStreetMap</button>
+      <div id="osm-fiche" class="osm-fiche" hidden></div>
       <p id="consigne" class="consigne">Cliquez sur la carte pour déplacer le départ. Pour un itinéraire, choisissez « Arrivée » en haut puis cliquez sur la carte.</p>
       <div id="resultat" hidden>
         <div class="duree" id="duree"></div>
@@ -532,6 +549,7 @@ dialog.apropos .fermer{position:absolute;top:10px;right:10px;width:34px;height:3
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
 <script src="coeur.js"></script>
+<script src="osm-contrib.js"></script>
 <script>
 // Légende pliable ; choix retenu d'une visite à l'autre, sinon pliée sur petit écran
 (() => {
@@ -1289,7 +1307,7 @@ document.getElementById("replier").addEventListener("click", e => {
   }
   function commencerTrace() {
     if (outil.actif) return;
-    finirVoie();
+    finirVoie(); contrib.arreter();
     outil.actif = true; outil.sommets = []; outil.raccords = []; outil.suiviAvant = etat.suivre;
     $("#sim-details").open = false;
     suivre(false); carte.doubleClickZoom.disable();
@@ -1326,7 +1344,7 @@ document.getElementById("replier").addEventListener("click", e => {
   const voie = { actif: false, suiviAvant: false, ajoute: false };
   function commencerVoie() {
     if (voie.actif) return;
-    finirTrace(false);
+    finirTrace(false); contrib.arreter();
     voie.actif = true; voie.ajoute = false; voie.suiviAvant = etat.suivre;
     $("#sim-details").open = false;
     suivre(false); selectionner(-1);
@@ -1353,6 +1371,10 @@ document.getElementById("replier").addEventListener("click", e => {
     sim.troncons.push(simple); voie.ajoute = true; majSimulation();
   }
   $("#sim-voie").addEventListener("click", () => (voie.actif ? finirVoie() : commencerVoie()));
+
+  // ---------- Vérifier une voie dans OpenStreetMap (osm-contrib.js) : exclusif des outils de simulation ----------
+  const contrib = installerContribOsm({ carte, $, vue: () => vue.P, CLASSES, genere: index.genere, etat, suivre, areteProche,
+    avantDebut: () => { finirTrace(false); finirVoie(); selectionner(-1); } });
   document.addEventListener("keydown", ev => { if (voie.actif && ev.key === "Escape") finirVoie(); });
 
   // ---------- Maillons manquants de l'île (D4, ?territoire=oleron) : classement précalculé par maillons.js ----------
@@ -1955,6 +1977,7 @@ document.getElementById("replier").addEventListener("click", e => {
     }, 300);
   });
   carte.on("click", ev => {
+    if (contrib.actif) { contrib.clic(ev.latlng); return; }
     if (outil.actif) { outil.sommets.push([ev.latlng.lng, ev.latlng.lat]); dessinerTraceEnCours(); return; }
     if (voie.actif) { amenagerVoie(ev.latlng); return; }
     if (d4.actif) return;                                        // vue cumulée : ni départ ni arrivée (carte cachée)

@@ -198,3 +198,19 @@ nationales : 369 912 km d'arêtes marquées RD par la `ref` OSM, pour ~378 000 k
 L'appariement BD TOPO (téléchargement IGN par département, `marquer_rd.py`) apporterait peu pour un gros chantier.
 
 Phases suivantes : voir la spec (§7) — diagnostics par EPCI et par commune.
+
+## Boucle de contribution OSM, niveaux 1 et 2 (17/10/2026, branche `contrib-osm`)
+
+Demande d'Aurélien : avant de régler les mises à jour, aider les visiteurs à corriger OSM depuis la carte.
+- `osm-contrib.js` (racine du site, copié par `construire.sh`) : bouton « Vérifier une voie dans OpenStreetMap »
+  dans le socle commun. Au clic : l'arête la plus proche (`areteProche`, toutes classes), ce qu'en dit la tuile
+  (classe, vitesse, sens, RD/N), la voie OSM retrouvée par Overpass (tuiles sans identifiant de voie ; voie choisie
+  par la distance des extrémités et du milieu de l'arête), ses tags utiles, sa lecture aujourd'hui (`lireTags`,
+  miroir de `classer_fin` pour l'explication seulement), des indices (surface, aménagement, `bicycle`,
+  `oneway:bicycle`), « modifiée après nos données » d'après le timestamp. Liens : iD sur la voie (`#porteevelo`),
+  historique, nouvelle note sur osm.org (texte suggéré à copier). Clic sans voie : « une voie manque peut-être ».
+- Rien n'est écrit dans OSM depuis la page (pas d'API notes) : choix prudent, à revoir avec Aurélien.
+- Exclusif des outils Tracer / Aménager une voie ; Échap pour sortir. Notes dans Confort et Simuler.
+- Tests : `test/contrib.test.js` (36 cas de tags comparés à `classer_fin` via `test/contrib_classer.py`, qui
+  régénère `test/fixtures/contrib_cas.json` ; choix de la voie ; liens). Contrôlé dans Chromium (974) avec une
+  réponse Overpass simulée : Overpass est bloqué depuis les sessions cloud, à vérifier en ligne.
