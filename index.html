@@ -50,6 +50,9 @@ h2{font-size:.85rem;font-weight:600;color:var(--ardoise);margin:0 0 8px}
 .bascule.petite button{font-size:.8rem;padding:6px 9px}
 
 .recherche{display:flex;gap:8px;align-items:center}
+.geoloc{flex:none;display:flex;align-items:center;justify-content:center;width:40px;height:40px;border:1px solid #c3d3d7;border-radius:8px;background:#fff;color:var(--abysse);cursor:pointer}
+.geoloc:hover{background:#eef8fb}
+.geoloc[aria-busy="true"]{opacity:.5;cursor:progress}
 .recherche input{flex:1;min-width:0;font:inherit;font-size:.92rem;padding:9px 11px;border:1px solid #c3d3d7;border-radius:8px;background:#fff;color:var(--encre)}
 .suggestions{list-style:none;margin:8px 0 0;padding:0;border:1px solid var(--brume);border-radius:8px;overflow:hidden}
 .suggestions li+li{border-top:1px solid var(--brume)}
@@ -388,6 +391,10 @@ dialog.apropos .fermer{position:absolute;top:10px;right:10px;width:34px;height:3
   <div class="depart">
     <div class="recherche">
       <input id="recherche" type="search" autocomplete="off" placeholder="Chercher une adresse" aria-label="Chercher une adresse" aria-controls="suggestions">
+      <!-- Géolocalisation (17/10/2026) : place le départ (ou l'arrivée) là où l'on est -->
+      <button type="button" class="geoloc" id="geoloc" title="Me localiser" aria-label="Me localiser" hidden>
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2.5" fill="currentColor" stroke="none"/><path d="M12 1v4M12 19v4M1 12h4M19 12h4"/></svg>
+      </button>
       <div class="bascule petite" role="group" aria-label="L'adresse ou le clic sur la carte place le">
         <button type="button" data-cible="depart" aria-pressed="true">Départ</button>
         <button type="button" data-cible="arrivee" aria-pressed="false">Arrivée</button>
@@ -2112,6 +2119,34 @@ document.getElementById("replier").addEventListener("click", e => {
       if (!carte.getBounds().contains(ll)) carte.panTo(ll);
     }));
   }
+
+  // ---------- Géolocalisation (17/10/2026) ----------
+  // Place le départ ou l'arrivée (selon la bascule) sur la position du navigateur ; avec « Vérifier une voie dans
+  // OpenStreetMap » actif, centre seulement la carte (pour corriger ce qu'on a sous les yeux). Rien n'est envoyé
+  // ailleurs : la position reste dans la page. Point bleu et cercle de précision jusqu'au prochain clic sur le bouton.
+  const geoloc = $("#geoloc"), couchePosition = L.layerGroup().addTo(carte);
+  geoloc.hidden = !("geolocation" in navigator);
+  geoloc.addEventListener("click", () => {
+    if (geoloc.getAttribute("aria-busy") === "true") return;
+    geoloc.setAttribute("aria-busy", "true");
+    navigator.geolocation.getCurrentPosition(pos => {
+      geoloc.removeAttribute("aria-busy");
+      const ll = L.latLng(pos.coords.latitude, pos.coords.longitude), prec = pos.coords.accuracy;
+      couchePosition.clearLayers();
+      if (!dansZone(ll)) { afficherMessage(`Votre position est hors ${terr ? "de " + terr.nom : "du territoire de la carte"} : choisissez un autre territoire ou placez le départ sur la carte.`); return; }
+      afficherMessage("");
+      L.circle(ll, { radius: prec, pane: "trace", color: "#1A73E8", weight: 1, fillOpacity: .1, interactive: false }).addTo(couchePosition);
+      L.circleMarker(ll, { pane: "trace", radius: 6, color: "#fff", weight: 2, fillColor: "#1A73E8", fillOpacity: 1, interactive: false }).addTo(couchePosition);
+      carte.setView(ll, Math.max(carte.getZoom(), prec > 500 ? 14 : 16));
+      if (contrib.actif) return;
+      if (etat.cible === "depart") { suivre(false); placerDepart(ll, true); } else definirArrivee(ll);
+    }, err => {
+      geoloc.removeAttribute("aria-busy");
+      afficherMessage(err.code === err.PERMISSION_DENIED
+        ? "Localisation refusée : autorisez-la pour ce site dans le navigateur, ou cherchez une adresse."
+        : "Position introuvable pour l'instant. Réessayez, ou cherchez une adresse.");
+    }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 });
+  });
 
   // ---------- Lien de partage ----------
   const fmtLL = ll => `${ll.lat.toFixed(5)},${ll.lng.toFixed(5)}`;

@@ -214,3 +214,9 @@ Demande d'Aurélien : avant de régler les mises à jour, aider les visiteurs à
 - Tests : `test/contrib.test.js` (36 cas de tags comparés à `classer_fin` via `test/contrib_classer.py`, qui
   régénère `test/fixtures/contrib_cas.json` ; choix de la voie ; liens). Contrôlé dans Chromium (974) avec une
   réponse Overpass simulée : Overpass est bloqué depuis les sessions cloud, à vérifier en ligne.
+- Géolocalisation (17/10, demande d'Aurélien) : bouton à droite de la recherche d'adresse ; place le départ ou
+  l'arrivée (bascule) sur la position, point bleu et cercle de précision ; hors du territoire, message. Avec
+  « Vérifier une voie » actif, centre seulement la carte. Contrôlé dans Chromium (position simulée, https).
+- Aperçu des branches : `.github/workflows/apercu.yml` (`wrangler versions upload --preview-alias <branche>`,
+  `preview_urls` dans `wrangler.jsonc`) → https://contrib-osm-portee-velo.aurelienchaumet17.workers.dev, sans
+  toucher au site en ligne.
