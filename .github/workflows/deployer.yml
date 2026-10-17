@@ -61,6 +61,13 @@ jobs:
             rm -rf "tuiles/$zone" && mkdir -p "tuiles/$zone" && tar -xf "/tmp/$tag.tar" -C "tuiles/$zone"
             echo "tuiles/$zone : release $tag ($(ls "tuiles/$zone" | wc -l) fichiers)"
           done
+          # Diagnostics par EPCI (diagnostiquer.yml) : release diag-<zone>, ajoutée aux tuiles du territoire
+          for tag in $(gh release list --limit 100 --json tagName -q '.[].tagName' | grep '^diag-' || true); do
+            zone=${tag#diag-}
+            gh release download "$tag" -p "$tag.tar" -O "/tmp/$tag.tar"
+            mkdir -p "tuiles/$zone" && tar -xf "/tmp/$tag.tar" -C "tuiles/$zone"
+            echo "tuiles/$zone : diagnostics $tag ($(tar -tf "/tmp/$tag.tar" | wc -l) fichiers)"
+          done
       # Scores des 101 chefs-lieux sur les tuiles qu'on publie (classement.html) : ~1 min
       - if: steps.secrets.outputs.ok == 'true'
         run: node chaine/scores.js tuiles
