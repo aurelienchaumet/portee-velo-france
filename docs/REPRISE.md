@@ -263,5 +263,8 @@ Demande d'Aurélien : avant de régler les mises à jour, aider les visiteurs à
   routes ; sans les routes, environ 28 000 communes sans piste à portée de la mairie. Un seul score nul avec les
   routes : Martignas-sur-Jalle (33273), à regarder (mairie hors réseau ?).
 - `classement.html` : choix « Chef-lieu / Toutes les communes » (médiane par département ; échelle = quantiles des
-  communes ; mairies en points à partir du zoom 8, clic → carte depuis la mairie ; `#d=communes`).
+  communes ; `#d=communes`). À partir du zoom 8, **communes en aplats sur leur contour** (demande d'Aurélien, à la
+  place des mairies en points) : `chaine/contours_communes.py` (contours geo.api.gouv.fr, `coverage_simplify` à ~50 m
+  sur toute la France d'un tenant, un fichier par département, 54 Mo en tout, 1 Mo au plus), lus seulement pour les
+  départements visibles ; clic → carte depuis la mairie.
 - Guyane : ouverture centrée sur Cayenne au zoom 10 (plus la vue de tout le département).

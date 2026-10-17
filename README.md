@@ -284,6 +284,8 @@ Pourquoi une surface ? Elle résume à la fois la densité du réseau, sa contin
 
 `scores.js` fait tourner sous Node exactement le code de la page (fenêtre de 3 × 3 tuiles, Dijkstra borné à 15 minutes, aire de chaque cellule calculée à sa latitude). En tête avec les routes (données OSM d'octobre 2026) : Paris 48,6 km², Rennes 46,9, Niort 46,5, Bordeaux 46,3. Sans les routes, Paris (35,1) et Rennes (32,2) restent devant ; plusieurs chefs-lieux n'ont aucune piste à portée de la mairie. La carte répartit les départements en classes d'effectifs égaux (quantiles), recalculées pour chaque réseau.
 
+**Toutes les communes.** `scores_communes.js` refait le même calcul depuis la mairie de chacune des 34 875 communes (positions de geo.api.gouv.fr). Le classement propose alors la médiane de chaque département et, en zoomant, chaque commune en aplat sur son contour (`contours_communes.py` : contours Admin Express simplifiés ensemble, sans trou ni chevauchement entre voisines). Médiane nationale : 31,2 km² avec les routes.
+
 ## Hébergement et calculs sur GitHub Actions
 
 Le site est servi en fichiers statiques par **Cloudflare Workers** (offre gratuite : au plus 20 000 fichiers de 25 Mo ; le site en compte environ 10 000). Le calcul lourd tourne sur **GitHub Actions** ; les gros résultats sont publiés en *releases* GitHub plutôt que dans l'historique git.
