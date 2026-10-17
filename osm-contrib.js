@@ -210,15 +210,21 @@ function installerContribOsm(o) {
 
   function boutons(lat, lon, voie, carteTexte) {
     const note = C.texteNote({ voie, carte: carteTexte });
-    const copier = el("button", { type: "button", class: "lien-action", texte: "Copier le texte suggéré pour une note" });
-    copier.addEventListener("click", () => {
-      navigator.clipboard?.writeText(note).then(() => { copier.textContent = "Texte copié"; }, () => { copier.textContent = note; });
+    // Un seul geste pour la note : osm.org n'accepte pas de texte pré-rempli dans l'URL (17/10/2026), donc le clic
+    // copie le texte suggéré puis ouvre le formulaire (lien normal : pas de bloqueur de fenêtres). La copie est lancée
+    // avant l'ouverture de l'onglet, tant que la page a encore le focus.
+    const ajouterNote = lien(C.lienNote(lat, lon), "Ajouter une note sur OSM (texte copié, à coller)");
+    const aide = el("p", { class: "note", texte: "Le texte suggéré est copié : collez-le (Ctrl+V ou appui long) dans la note, puis complétez-le avec ce que vous voyez sur le terrain." });
+    aide.hidden = true;
+    ajouterNote.addEventListener("click", () => {
+      aide.hidden = false;
+      navigator.clipboard?.writeText(note).catch(() => { aide.textContent = `Copie impossible : recopiez ce texte dans la note. ${note}`; });
+      if (!navigator.clipboard) aide.textContent = `Recopiez ce texte dans la note : ${note}`;
     });
     return el("div", { class: "osm-actions" },
       lien(C.lienId({ lat, lon, way: voie?.id }), voie ? "Modifier cette voie dans OSM (iD)" : "Ajouter la voie dans OSM (iD)"),
       voie ? lien(C.lienHistorique(voie.id), "Historique de la voie") : null,
-      lien(C.lienNote(lat, lon), "Signaler sans modifier (note OSM)"),
-      copier);
+      ajouterNote, aide);
   }
 
   async function clic(ll) {

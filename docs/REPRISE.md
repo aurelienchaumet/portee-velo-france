@@ -230,7 +230,7 @@ Demande d'Aurélien : avant de régler les mises à jour, aider les visiteurs à
   par la distance des extrémités et du milieu de l'arête), ses tags utiles, sa lecture aujourd'hui (`lireTags`,
   miroir de `classer_fin` pour l'explication seulement), des indices (surface, aménagement, `bicycle`,
   `oneway:bicycle`), « modifiée après nos données » d'après le timestamp. Liens : iD sur la voie (`#porteevelo`),
-  historique, nouvelle note sur osm.org (texte suggéré à copier). Clic sans voie : « une voie manque peut-être ».
+  historique, nouvelle note sur osm.org (le clic copie le texte suggéré). Clic sans voie : « une voie manque peut-être ».
 - Rien n'est écrit dans OSM depuis la page (pas d'API notes) : choix prudent, à revoir avec Aurélien.
 - Exclusif des outils Tracer / Aménager une voie ; Échap pour sortir. Notes dans Confort et Simuler.
 - Tests : `test/contrib.test.js` (36 cas de tags comparés à `classer_fin` via `test/contrib_classer.py`, qui
