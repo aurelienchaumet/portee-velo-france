@@ -1,0 +1,53 @@
+# Aperçu d'une branche de travail sur Cloudflare Workers, sans toucher au site en ligne (17/10/2026).
+# wrangler versions upload crée une version non déployée, servie à https://<branche>-portee-velo.<compte>.workers.dev
+# (alias de preview). Le site en ligne reste la dernière version déployée par deployer.yml (france-entiere).
+# Mêmes données que deployer.yml : tuiles du dépôt, plus les releases tuiles-* (métropole).
+name: Aperçu
+
+on:
+  push:
+    branches-ignore: [main, france-entiere]
+    paths:
+      - index.html
+      - coeur.js
+      - osm-contrib.js
+      - classement.html
+      - deploiement/**
+      - wrangler.jsonc
+      - .github/workflows/apercu.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: apercu-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apercu:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for tag in $(gh release list --limit 100 --json tagName -q '.[].tagName' | grep '^tuiles-' || true); do
+            zone=${tag#tuiles-}
+            gh release download "$tag" -p "$tag.tar" -O "/tmp/$tag.tar"
+            rm -rf "tuiles/$zone" && mkdir -p "tuiles/$zone" && tar -xf "/tmp/$tag.tar" -C "tuiles/$zone"
+          done
+      - run: node chaine/scores.js tuiles
+      - run: ./deploiement/construire.sh
+      # Alias = nom de la branche, réduit aux caractères permis (minuscules, chiffres, tirets)
+      - name: Version d'aperçu
+        run: |
+          alias=$(echo "${GITHUB_REF_NAME}" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g' | cut -c1-40)
+          for i in 1 2 3; do
+            npx --yes wrangler@4.151.1 versions upload --preview-alias "$alias" --message "Aperçu $GITHUB_REF_NAME ${GITHUB_SHA::7}" && break
+            echo "essai $i échoué"; sleep $((30 * i)); [ "$i" = 3 ] && exit 1
+          done
+          echo "Aperçu : https://$alias-portee-velo.<sous-domaine>.workers.dev" >> "$GITHUB_STEP_SUMMARY"
