@@ -683,11 +683,91 @@ document.getElementById("replier").addEventListener("click", e => {
   // en arrière sans relire
   const FENETRE = new URLSearchParams(location.search).get("fenetre") === "5" ? 5 : 7;
   const RAYON = (FENETRE - 1) / 2;
-  const chargeur = new ChargeurTuiles({ index, rayon: RAYON, capacite: Math.max(60, (2 * RAYON + 3) ** 2 + 20),
+  const OPTIONS_CHARGEUR = { index, rayon: RAYON, capacite: Math.max(60, (2 * RAYON + 3) ** 2 + 20),
     lire: (tx, ty) => fetch(`${DOSSIER}${tx}_${ty}.bin`).then(r => {
       if (!r.ok) throw new Error(`tuile ${tx}_${ty} : ${r.status}`);
       return r.arrayBuffer();
-    }) });
+    }) };
+  // Chargeur dans un Worker (tuiles-worker.js, 19/10/2026) : lecture, décodage, recollage, graphe « tout », sa
+  // contraction et le graphe « sans les routes » hors du fil principal (à Paris, ~2,5 s de gel par changement de
+  // fenêtre). Même interface que ChargeurTuiles ; la fenêtre arrive avec son graphe « tout » (f.G). En cas de panne
+  // du Worker (ou sans Worker), repli sur ChargeurTuiles dans la page, comme avant.
+  class ChargeurWorker {
+    constructor(o) {
+      this.existe = new Set(o.index.tuiles.map(([tx, ty]) => `${tx}_${ty}`));
+      this.rayon = o.rayon; this.options = o; this.distant = true;
+      this.attente = new Map(); this.n = 0; this.dernier = null; this.amenage = null; this.secours = null;
+      this.fenetres = new Map();               // dernières fenêtres reçues avec graphe, par signature (pour leurs suites)
+      this.w = new Worker("tuiles-worker.js");
+      this.w.onmessage = e => {
+        const m = e.data;
+        if (m.type === "amenage") { this.amenage = m; if (this.surAmenage) this.surAmenage(m); return; }
+        if (m.type === "suite") {                // posée sur la fenêtre reçue de même signature, puis signalée à la page
+          const f = this.fenetres.get(m.signature);
+          if (f) {
+            if (m.reseau) f.reseau = m.reseau;
+            if (m.rapide && f.G && !f.G.rapide) f.G.rapide = m.rapide;
+          }
+          if (this.surSuite) this.surSuite(m);
+          return;
+        }
+        const r = this.attente.get(m.id);
+        if (!r) return;
+        this.attente.delete(m.id);
+        if (m.erreur) { r.rejet(new Error(m.erreur)); return; }
+        if (m.meme) { m.P = this.dernier && this.dernier.P; m.G = this.dernier && this.dernier.G; m.reseau = this.dernier && this.dernier.reseau; }
+        else {
+          if (m.G) m.G.rapideAttendu = true;     // contraction en route : la page ne la refait pas (preparerContractions)
+          this.dernier = { signature: m.signature, P: m.P, G: m.G || null, reseau: m.reseau || null };
+          if (m.G) {
+            // Le Worker abandonne les suites de la fenêtre précédente : ce qui n'en est pas arrivé, la page le fera
+            const prec = this.derniereFenetre;
+            if (prec && prec.G && !prec.G.rapide) prec.G.rapideAttendu = false;
+            if (prec && !prec.reseau && this.surAbandon) this.surAbandon(prec);
+            this.derniereFenetre = this.dernier;
+            this.fenetres.set(m.signature, this.dernier);
+            while (this.fenetres.size > 3) this.fenetres.delete(this.fenetres.keys().next().value);
+          }
+        }
+        r.ok(m);
+      };
+      this.w.onerror = e => {                  // script introuvable, erreur au chargement… : repli dans la page
+        e.preventDefault && e.preventDefault();
+        this.panne();
+      };
+      this.w.postMessage({ type: "init", index: o.index, grille: o.index.grille, rayon: o.rayon, capacite: o.capacite,
+        dossier: new URL(DOSSIER, location.href).href });
+    }
+    panne() {
+      if (!this.secours) { this.secours = new ChargeurTuiles(this.options); try { this.w.terminate(); } catch {} }
+      for (const [, r] of this.attente) r.rejet(new Error("Worker indisponible"));
+      this.attente.clear();
+    }
+    tuileDe(lon, lat) { return ChargeurTuiles.prototype.tuileDe.call(this, lon, lat); }
+    voisines(tx, ty, r) { return ChargeurTuiles.prototype.voisines.call(this, tx, ty, r); }
+    demander(msg) {
+      return new Promise((ok, rejet) => { const id = ++this.n; this.attente.set(id, { ok, rejet }); this.w.postMessage({ ...msg, id }); });
+    }
+    async fenetre(lon, lat) {
+      if (this.secours) return this.secours.fenetre(lon, lat);
+      try { return await this.demander({ type: "fenetre", lon, lat }); }
+      catch { this.panne(); return this.secours.fenetre(lon, lat); }
+    }
+    async couloir(lon1, lat1, lon2, lat2, demiLargeurKm) {
+      if (this.secours) return this.secours.couloir(lon1, lat1, lon2, lat2, demiLargeurKm);
+      try { return await this.demander({ type: "couloir", lon1, lat1, lon2, lat2, demiLargeurKm }); }
+      catch { this.panne(); return this.secours.couloir(lon1, lat1, lon2, lat2, demiLargeurKm); }
+    }
+    precharger(lon, lat) {
+      if (this.secours) this.secours.precharger(lon, lat);
+      else this.w.postMessage({ type: "precharger", lon, lat });
+    }
+  }
+  let chargeur;
+  try {
+    if (typeof Worker !== "function" || new URLSearchParams(location.search).has("sansworker")) throw new Error("sans Worker");
+    chargeur = new ChargeurWorker(OPTIONS_CHARGEUR);
+  } catch { chargeur = new ChargeurTuiles(OPTIONS_CHARGEUR); }
 
   // Point dans la zone (département, ou territoire demandé ; Polygon ou MultiPolygon, règle pair-impair)
   const anneaux = (zone.type === "Polygon" ? [zone.coordinates] : zone.coordinates).flat();
@@ -711,7 +791,8 @@ document.getElementById("replier").addEventListener("click", e => {
   const aff = () => (vue.sim && sim.vue !== "avant" ? vue.sim : vue);
   // Graphes d'une fenêtre : « tout » tout de suite, « pistes » (~400 ms avec les liaisons entre pistes) et
   // « confort » à la première demande : en mode « Pistes + routes », un changement de tuile ne paie que « tout »
-  const graphes = P => ({ tout: construireGraphe(P, "tout"),
+  // Gt : graphe « tout » déjà construit (Worker), avec sa contraction ; sinon construit ici
+  const graphes = (P, Gt) => ({ tout: Gt || construireGraphe(P, "tout"),
     get amenage() { return this._amenage || (this._amenage = construireGraphe(P, "amenage")); },
     get confort() { return this._confort || (this._confort = construireGraphe(P, "confort")); },
     get sansdep() { return this._sansdep || (this._sansdep = construireGraphe(P, "sansdep")); } });   // ~30 à 150 ms, grille comprise
@@ -821,13 +902,43 @@ document.getElementById("replier").addEventListener("click", e => {
   const marqueurDepart = L.marker([0, 0], { draggable: true, icon: icone("D", "repere-d"), title: "Départ, à faire glisser", zIndexOffset: 1000 });
   const marqueurArrivee = L.marker([0, 0], { draggable: true, icon: icone("A", "repere-a"), title: "Arrivée, à faire glisser" });
 
+  // Graphe « sans les routes » envoyé par le Worker après la fenêtre : posé s'il s'agit toujours de la même fenêtre
+  // et que la page ne l'a pas déjà construit elle-même (mode choisi avant son arrivée)
+  function recevoirAmenage(m) {
+    if (!vue.G || vue.signature !== m.signature || vue.G._amenage) return;
+    vue.G._amenage = m.G;
+  }
+  if (chargeur.distant) chargeur.surAmenage = recevoirAmenage;
+  function enregistrerContraction(P, G) {
+    const C = P._contractions || (P._contractions = []);
+    if (!C.some(x => x.G === G)) C.push({ G, pro: P.grille.pro.tout });
+  }
+  // Suites du Worker pour la fenêtre affichée : lignes du réseau à dessiner, contraction (posée sur le graphe par le
+  // chargeur ; « confort » peut alors la reprendre)
+  // Suites abandonnées par le Worker (une autre fenêtre est partie entre-temps) alors que la page affiche toujours
+  // celle-ci : lignes du réseau calculées ici ; la contraction, preparerContractions la fera sur un temps libre
+  if (chargeur.distant) chargeur.surAbandon = f => {
+    if (vue.signature !== f.signature) return;
+    dessinerReseau([lignesReseau(vue.P, 0), lignesReseau(vue.P, 1)]);
+    preparerContractions();
+  };
+  if (chargeur.distant) chargeur.surSuite = m => {
+    if (vue.signature !== m.signature) return;
+    if (m.reseau) dessinerReseau(m.reseau.map(deballerLignes));
+    if (m.rapide) { enregistrerContraction(vue.P, vue.G.tout); preparerContractions(); }
+  };
+
   // Nouvelle fenêtre de tuiles : graphes des deux modes, image de chaleur et réseau dessiné à refaire
   function installerFenetre(f) {
     vue.partielle = f.partielle;
     if (f.P === vue.P) return;
     vue.P = f.P; vue.g = f.P.grille; vue.centre = f.centre;
     majCrxFenetre(); majAccesFenetre();
-    vue.G = graphes(f.P);
+    vue.G = graphes(f.P, f.G);
+    // Contraction faite par le Worker : enregistrée pour que « confort » la reprenne (graphRapide, coeur.js)
+    if (f.G && f.G.rapide) enregistrerContraction(f.P, f.G);
+    vue.signature = f.signature;
+    if (chargeur.amenage && chargeur.amenage.signature === f.signature) recevoirAmenage(chargeur.amenage);
     vue.g.pro.confort = vue.g.pro.tout; vue.g.dist.confort = vue.g.dist.tout;   // même réseau que « tout », poids différents
     if (masqueZone) appliquerMasque(vue.g, masqueZone, index.grille);   // vue territoire : cellules hors du territoire ni colorées ni comptées
     preparerSimulation();                      // après le masque : P′ en hérite
@@ -842,9 +953,15 @@ document.getElementById("replier").addEventListener("click", e => {
       if (chaleur) chaleur.remove();
       chaleur = new CalqueCanvas(toile, bornes, { pane: "chaleur", opacity: .78, interactive: false }).addTo(carte);
     } else chaleur.setBounds(bornes);
-    // Réseau cyclable de la fenêtre par-dessus la chaleur : trait blanc fin (pistes), tirets (bandes)
+    // Réseau cyclable : lignes faites par le Worker (déjà là, ou à venir dans une suite), sinon calculées ici
     reseau.clearLayers();
-    const P = vue.P, segments = [lignesReseau(P, 0), lignesReseau(P, 1)];
+    if (f.reseau) dessinerReseau(f.reseau.map(deballerLignes));
+    else if (!chargeur.distant || chargeur.secours) dessinerReseau([lignesReseau(vue.P, 0), lignesReseau(vue.P, 1)]);
+    dessinerRd();
+  }
+  // Réseau cyclable de la fenêtre par-dessus la chaleur : trait blanc fin (pistes), tirets (bandes)
+  function dessinerReseau(segments) {
+    reseau.clearLayers();
     const style = { renderer: rendu, interactive: false, lineCap: "round", lineJoin: "round" };
     // Bleu canard sous halo blanc : distinct des routes du fond IGN (blanches à liseré gris, qui masquaient un trait
     // blanc hors zone colorée), lisible sur les teintes, distinct des maillons manquants (noirs, épais)
@@ -853,7 +970,6 @@ document.getElementById("replier").addEventListener("click", e => {
     L.polyline(segments[1], { ...style, color: "#fff", weight: 3.4, opacity: .85 }).addTo(reseau);
     L.polyline(segments[1], { ...style, color: "#00657A", weight: 1.6, opacity: 1, dashArray: "3 3" }).addTo(reseau);
     if ($("#voir-reseau").checked) reseau.addTo(carte);
-    dessinerRd();
   }
 
   // ---------- Dessin ----------
@@ -903,6 +1019,8 @@ document.getElementById("replier").addEventListener("click", e => {
     ctx.putImageData(image, 0, 0);                 // affiché tel quel par CalqueCanvas
   }
 
+  // Isolignes en canvas (19/10/2026) : en SVG, 25 000 à 45 000 sommets par fenêtre en ville ; un seul moteur, réutilisé
+  const renduIso = L.canvas({ pane: "iso", padding: 0.3 });
   function dessinerIsolignes(min) {
     iso.clearLayers();
     const P = aff().P, g = P.grille, f = champIsolignes(P, min);
@@ -921,7 +1039,7 @@ document.getElementById("replier").addEventListener("click", e => {
       }
       if (!lignes.length) continue;
       const plein = c.value % 30 === 0;
-      L.polyline(lignes, { pane: "iso", interactive: false, color: "#0B2E38", opacity: .8, weight: plein ? 1.8 : 1.1, dashArray: plein ? null : "4 4" }).addTo(iso);
+      L.polyline(lignes, { renderer: renduIso, pane: "iso", interactive: false, color: "#0B2E38", opacity: .8, weight: plein ? 1.8 : 1.1, dashArray: plein ? null : "4 4" }).addTo(iso);
     }
   }
 
@@ -1074,6 +1192,8 @@ document.getElementById("replier").addEventListener("click", e => {
     if (contractionPrevue) return;
     const s = [vue, vue.sim].filter(x => x && x.G), aFaire = [];
     for (const x of s) {
+      // Contraction de « tout » attendue du Worker : rien à faire ici (« confort » la reprendra à son arrivée)
+      if (x.G.tout.rapideAttendu && !x.G.tout.rapide && !chargeur.secours) continue;
       aFaire.push([x.G[etat.mode], x.P]);
       if (confortActif()) aFaire.push([x.G.confort, x.P]);
       if ($(".panneau").dataset.q === "4") aFaire.push([x.G.tout, x.P], [x.G.amenage, x.P], [x.G.confort, x.P]);   // Services : les trois mesures
@@ -1628,7 +1748,8 @@ document.getElementById("replier").addEventListener("click", e => {
     if (!acces || !vue.g) return;
     vue.ixAcces = indexerComptages(acces, vue.g);
     vue.totAcces = masqueZone ? compterAtteints(acces, vue.ixAcces, null, [1], vue.g.ile) : null;
-    setTimeout(() => { if (vue.G) vue.G.amenage; }, 0);   // graphe « pistes » (~400 ms) préparé hors du survol
+    // Graphe « pistes » (~400 ms, 1,5 s à Paris) préparé hors du survol ; avec le Worker, il arrive tout fait
+    if (!chargeur.distant || chargeur.secours) setTimeout(() => { if (vue.G) vue.G.amenage; }, 0);
   }
   // Mesures d'un état (vue ou vue.sim) pour le départ courant ; deux emplacements de cache (avant / après)
   const cacheAcces = [];

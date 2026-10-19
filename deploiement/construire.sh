@@ -6,7 +6,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 rm -rf dist && mkdir -p dist/tuiles
-cp index.html classement.html coeur.js osm-contrib.js LICENSE dist/
+cp index.html classement.html coeur.js tuiles-worker.js osm-contrib.js LICENSE dist/
 cp deploiement/_headers dist/
 for d in tuiles/*/; do cp -r "$d" dist/tuiles/; done
 # Classement des départements (classement.html) : contours des 96 départements et scores (chaine/scores.js)
