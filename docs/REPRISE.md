@@ -268,3 +268,32 @@ Demande d'Aurélien : avant de régler les mises à jour, aider les visiteurs à
   sur toute la France d'un tenant, un fichier par département, 54 Mo en tout, 1 Mo au plus), lus seulement pour les
   départements visibles ; clic → carte depuis la mairie.
 - Guyane : ouverture centrée sur Cayenne au zoom 10 (plus la vue de tout le département).
+
+## Graphe contracté pour le survol (19/10/2026, branche `contraction-graphe`)
+
+Question d'Aurélien : Kepler.gl irait-il plus vite ? Non : mesuré, le dessin de la chaleur prend 1 à 2 ms ; tout le
+temps part dans le calcul (Paris en 7 × 7 : 1,9 M nœuds, ~180 ms par image de survol, ~420 ms en « Temps et confort »).
+- **80 % des nœuds sont des points de tracé** (degré 2, deux voisins distincts). `contracter` (coeur.js) les retire du
+  graphe de calcul : une chaîne entre deux nœuds gardés devient un arc par sens. Gardés : nœuds cités par la grille
+  du mode (départs, arrivées, cellules) et tout ce qui n'est pas un point de tracé. Paris : 34 % des nœuds gardés.
+- `dijkstraRapide(G, P, …)` : Dijkstra sur le graphe contracté, résultat **redéplié** sur tous les nœuds (temps et
+  pred exacts) à la première lecture de `dist` ou `pred` ; `tempsGrille` lit `distGardes` sans redéplier (survol).
+  Tampons réutilisés (le ramasse-miettes prenait ~35 ms par image à Paris), avec numéro de génération : un résultat
+  gardé puis écrasé est refait. « confort » reprend la contraction de « tout » (mêmes arcs), seuls les poids changent ;
+  `minutesTranquilles` reporte son relâchement des routes sur le graphe contracté (`ajusterContracte`).
+- Branché sur : survol et calcul (`calculerSur`), trajet tranquille, Services (`minutesAcces`), maillons D4
+  (`cumulerMaillons`). Pas sur l'itinéraire lointain (Dijkstra arrêté à l'arrivée) ni sur les scripts de la chaîne.
+- La page construit la contraction **sur un temps libre** (`preparerContractions`, `CFG.contractionImmediate = false`) :
+  50 à 320 ms selon la ville, pas ajoutés au gel d'un changement de fenêtre ; d'ici là, calcul complet comme avant.
+- Résultats : temps **strictement identiques** (écart 0 s sur tous les nœuds, Paris, Lyon, Marseille, La Rochelle ;
+  `chaine/test/contraction.test.js`, 6 tests) ; textes de la page identiques avant/après (itinéraires et étapes,
+  surfaces, Services, sans les routes) dans Chromium. Survol, image médiane dans Chromium à Paris : 168 → 86 ms.
+  Node (calcul seul, 60 min) : Paris 158 → 73 ms, Lyon 98 → 47, Marseille 47 → 21, La Rochelle 20 → 10 ; trajet
+  tranquille Paris 259 → 114 ms. Mémoire : ~50 Mo de plus à Paris.
+- **Contraction au tuilage (format v2) : écartée.** Elle n'accélérerait plus le survol (même graphe de calcul) ; elle
+  ferait gagner ~0,3 s au changement de fenêtre à Paris (~0,1 s ailleurs), mais dessin du réseau, simulation,
+  itinéraires et grille ont besoin des points de tracé : réécriture de tous ces usages + re-tuilage + scores. Le gel
+  du changement de fenêtre (~0,9 s à Paris : décompression, décodage, recollage, graphe) se traite mieux par un
+  **Web Worker** (coeur.js est déjà sans DOM) : prochaine étape proposée.
+- Autres pistes mesurées, non faites : survol borné à 30 min pendant le mouvement (Paris ~35 ms), isolignes en canvas
+  (elles sont en SVG), `scores_communes.js` sur `dijkstraRapide` (mêmes scores, plus rapide dans Actions).
