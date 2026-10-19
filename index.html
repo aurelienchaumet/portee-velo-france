@@ -1059,13 +1059,40 @@ document.getElementById("replier").addEventListener("click", e => {
     // Départ : nœud accroché et, avec des tronçons simulés, aussi celui d'avant (une piste ne rallonge jamais un trajet)
     const acc = departs(s.P, Gm, lng, lat);
     if (!acc.length) return null;
-    const res = dijkstra(Gm, sourcesDijkstra(acc), 0, LIMITE_S);
+    const res = dijkstraRapide(Gm, s.P, sourcesDijkstra(acc), 0, LIMITE_S);   // graphe contracté, résultat redéplié
     // Trajet tranquille borné à 1,5 × 60 min (surcoût jusqu'à +50 %)
     const minConf = confortActif() ? minutesTranquilles(s.P, s.G.confort, lng, lat, LIMITE_S * CFG.confort.surcout[1]) : null;
     return { acc, res, minutes: tempsGrille(s.P, Gm, res), minConf };
   }
 
+  // Graphes contractés (coeur.js, dijkstraRapide) des graphes du calcul en cours, construits sur un temps libre :
+  // 50 à 320 ms selon la ville, qu'on ne veut pas ajouter au gel d'un changement de fenêtre. D'ici là, calcul
+  // complet comme avant ; ensuite, survol 2 fois plus rapide, mêmes temps.
+  CFG.contractionImmediate = false;
+  let contractionPrevue = false;
+  function preparerContractions() {
+    if (contractionPrevue) return;
+    const s = [vue, vue.sim].filter(x => x && x.G), aFaire = [];
+    for (const x of s) {
+      aFaire.push([x.G[etat.mode], x.P]);
+      if (confortActif()) aFaire.push([x.G.confort, x.P]);
+      if ($(".panneau").dataset.q === "4") aFaire.push([x.G.tout, x.P], [x.G.amenage, x.P], [x.G.confort, x.P]);   // Services : les trois mesures
+    }
+    if (aFaire.every(([G]) => G.rapide)) return;
+    contractionPrevue = true;
+    const faire = () => {
+      contractionPrevue = false;
+      const suivant = aFaire.find(([G]) => !G.rapide);          // un graphe par temps libre
+      if (!suivant || !vue.G) return;
+      graphRapide(suivant[0], suivant[1]);
+      preparerContractions();
+    };
+    if (typeof requestIdleCallback === "function") requestIdleCallback(faire, { timeout: 1500 });
+    else setTimeout(faire, 300);                                 // Safari : pas de requestIdleCallback
+  }
+
   function calculer(complet) {
+    preparerContractions();
     const g = vue.g;
     // Sans tronçon : un seul calcul. Avec : avant (P) et après (P′) à chaque image, pour le bandeau et la vue Gain
     // (mesuré sur Oléron : 23 ms sans tronçon, ~45 ms avec, temps et confort compris)
