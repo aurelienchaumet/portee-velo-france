@@ -297,3 +297,29 @@ temps part dans le calcul (Paris en 7 × 7 : 1,9 M nœuds, ~180 ms par image de 
   **Web Worker** (coeur.js est déjà sans DOM) : prochaine étape proposée.
 - Autres pistes mesurées, non faites : survol borné à 30 min pendant le mouvement (Paris ~35 ms), isolignes en canvas
   (elles sont en SVG), `scores_communes.js` sur `dijkstraRapide` (mêmes scores, plus rapide dans Actions).
+
+## Web Worker pour les fenêtres de tuiles (19/10/2026, branche `worker-tuiles`, sur `contraction-graphe`)
+
+Gel à chaque changement de fenêtre (Paris : ~1 s de lecture, décodage, recollage et graphe, puis ~1,5 s pour le
+graphe « sans les routes » lancé juste après par `indexerAcces`, même sans s'en servir).
+- `tuiles-worker.js` (importScripts de coeur.js) : ChargeurTuiles, recollage et graphe « tout » dans le Worker ; la
+  fenêtre part dès qu'elle est prête (P et G **transférés**, sans copie). Suivent, une par une : lignes du réseau
+  (`emballerLignes` : à plat, pour ne pas copier 200 000 petits tableaux), contraction du graphe « tout », graphe
+  « sans les routes » et sa contraction. Une nouvelle fenêtre fait abandonner les suites de la précédente.
+- Page : `ChargeurWorker` (même interface que ChargeurTuiles ; `f.G` = graphe « tout »). Réponse « meme » quand le
+  Worker renverrait le même ensemble de tuiles (ses tableaux sont déjà côté page). Suites posées sur la fenêtre de
+  même signature (`surSuite`) ; suites abandonnées pour la fenêtre encore affichée : la page fait elle-même ce qui
+  manque (`surAbandon`). `preparerContractions` attend la contraction du Worker (`G.rapideAttendu`).
+- Repli : sans Worker, Worker introuvable ou en panne → ChargeurTuiles dans la page, comme avant ; `?sansworker`
+  pour comparer.
+- Isolignes en canvas (`renduIso`, un seul moteur réutilisé) : elles étaient en SVG.
+- Site : `tuiles-worker.js` ajouté à `deploiement/construire.sh` et aux chemins de `apercu.yml` / `deployer.yml`.
+- Contrôles : `chaine/test/worker.test.js` (Worker exécuté sous Node dans un contexte vm, tuiles d'Oléron : P, graphes,
+  lignes et temps identiques à la page ; « meme », couloir, tuile manquante, suites abandonnées), 77 tests au vert.
+  Chromium, tuiles nationales : textes identiques (itinéraires, surfaces, Services, sans les routes), rendu identique,
+  survol inchangé, repli vérifié (Worker en 404).
+- Mesures Chromium (profileur ; le compteur « longtask » de Chromium sans écran sous-estime), 3 changements de
+  fenêtre : fil principal occupé Paris 5,1 → 2,9 s, Lyon 4,3 → 2,4 s, La Rochelle 1,4 → 0,8 s ; plus long gel
+  Paris 1,65 → 0,65 s, Lyon 1,15 → 0,69 s, La Rochelle 0,98 → 0,58 s. Délai clic → résultat inchangé ou meilleur
+  (Paris 1,2–1,6 → 1,0–1,4 s). Ce qui reste dans le gel : calcul complet du départ (Dijkstra, isolignes d3.contours,
+  ~300 ms à Paris), tracé Leaflet du réseau (~100 ms), ramasse-miettes des anciennes fenêtres.

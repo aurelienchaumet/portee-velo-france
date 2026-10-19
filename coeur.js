@@ -554,6 +554,27 @@ function lignesReseau(P, c) {
   return lignes;
 }
 
+// Lignes de lignesReseau à plat, pour passer du Worker à la page sans copier 200 000 petits tableaux :
+// coords = lat, lon, lat, lon… ; debut[i] = indice du premier point de la ligne i (debut[nb] = nombre de points)
+function emballerLignes(lignes) {
+  let nPts = 0;
+  for (const l of lignes) nPts += l.length;
+  const coords = new Float64Array(2 * nPts), debut = new Uint32Array(lignes.length + 1);
+  let k = 0;
+  lignes.forEach((l, i) => { debut[i] = k; for (const [la, lo] of l) { coords[2 * k] = la; coords[2 * k + 1] = lo; k++; } });
+  debut[lignes.length] = k;
+  return { coords, debut };
+}
+function deballerLignes({ coords, debut }) {
+  const lignes = new Array(debut.length - 1);
+  for (let i = 0; i < lignes.length; i++) {
+    const l = new Array(debut[i + 1] - debut[i]);
+    for (let k = debut[i], j = 0; k < debut[i + 1]; k++, j++) l[j] = [coords[2 * k], coords[2 * k + 1]];
+    lignes[i] = l;
+  }
+  return lignes;
+}
+
 // Confort : voie exposée (départementale, secondaire, principale) ?
 function expose(c) { return CFG.confort.classes[c] >= 2; }
 
@@ -1526,7 +1547,7 @@ function equipementsFenetre(Cm, ix, g, minutes, compte) {
 
 if (typeof module !== "undefined") {
   module.exports = { CFG, preparer, construireGraphe, lignesReseau, expose, minutesTranquilles, teinteConfort, CELLULE_KM2, traitsNoirs, grilleDeparts, cumulerMaillons, dijkstra, accrocher, rattacherGrille, tempsGrille, itineraire, etapes, couverture, champIsolignes, accesSecondes, distanceM,
-    surfaceKm2, GRILLE_FRANCE, definirGrille, contracter, dijkstraRapide, graphRapide, ajusterContracte, l93VersWgs84, encoderTroncons, decoderTroncons, lireGeoJSON, versGeoJSON, longueurTroncon, noeudsProches, areteProche, aretesProches, croisements, voies, voieAuClic, decoderMasque, appliquerMasque, ajouterTroncons, gainSurface, gainConfort, departs, sourcesDijkstra, decompresserTuile, decoderTuile, recollerTuiles, ChargeurTuiles,
+    surfaceKm2, GRILLE_FRANCE, definirGrille, contracter, dijkstraRapide, graphRapide, ajusterContracte, emballerLignes, deballerLignes, l93VersWgs84, encoderTroncons, decoderTroncons, lireGeoJSON, versGeoJSON, longueurTroncon, noeudsProches, areteProche, aretesProches, croisements, voies, voieAuClic, decoderMasque, appliquerMasque, ajouterTroncons, gainSurface, gainConfort, departs, sourcesDijkstra, decompresserTuile, decoderTuile, recollerTuiles, ChargeurTuiles,
     preparerComptages, indexerComptages, compterAtteints, plusProcheParFonction, casFonctions, CAS, equipementsFenetre, minutesAcces };
 }
 // ===================================== FIN CŒUR =====================================

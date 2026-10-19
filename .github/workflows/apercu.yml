@@ -10,6 +10,7 @@ on:
     paths:
       - index.html
       - coeur.js
+      - tuiles-worker.js
       - osm-contrib.js
       - classement.html
       - deploiement/**
