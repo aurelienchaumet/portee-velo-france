@@ -323,3 +323,17 @@ graphe « sans les routes » lancé juste après par `indexerAcces`, même sans 
   Paris 1,65 → 0,65 s, Lyon 1,15 → 0,69 s, La Rochelle 0,98 → 0,58 s. Délai clic → résultat inchangé ou meilleur
   (Paris 1,2–1,6 → 1,0–1,4 s). Ce qui reste dans le gel : calcul complet du départ (Dijkstra, isolignes d3.contours,
   ~300 ms à Paris), tracé Leaflet du réseau (~100 ms), ramasse-miettes des anciennes fenêtres.
+
+## Contour de la métropole et lecture OSM (20/10/2026, branche `lecture-api-osm`)
+
+- **Contour** : `tuiles/fr/contour.json` (union de `departements.json` simplifiée à ~500 m, deux fois) coupait les caps
+  et les ports : 1 232 km² de terre dehors, 23 mairies où la page refusait le départ (Antibes, Roscoff, Le Conquet,
+  Ploumanac'h signalé par Aurélien à Perros-Guirec). `chaine/contour_metropole.py` → `chaine/contour_fr.json` :
+  communes de geo.api.gouv.fr, tampon de 300 m, simplifiées à ~200 m (0 km² dehors, 0 mairie, 0,1 Mo). Écrit dans
+  `tuiles/fr/contour.json` par `deployer.yml` et `apercu.yml` (pas de re-tuilage) ; repris par `tuiler.py --contour`.
+  Les scores et les tuiles n'en dépendaient pas.
+- **Lecture OSM** : Overpass refusait trop souvent (« rien ne s'affiche »). `lireVoies` (osm-contrib.js) lit d'abord
+  l'API d'OSM (`/api/0.6/map.json`, carré autour des extrémités de l'arête + 25 m), puis les 3 instances d'Overpass
+  en secours. Non testé depuis le cloud (api.openstreetmap.org bloqué) : à vérifier sur l'aperçu.
+- Décisions d'Aurélien (19/10) : **pas de BD TOPO** pour les RD (la `ref` OSM suffit) ; notes OSM **telles quelles**
+  (lien vers le formulaire d'osm.org, texte copié, rien écrit depuis la page).
