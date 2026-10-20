@@ -447,13 +447,19 @@ def ecrire_contour_departement(con, parquets, code, marge_km, sortie, vers_metre
 
 
 def ecrire_contour_zone(chemin, code, marge_km, sortie, vers_metres):
-    """contour.json d'un territoire tuilé avec --contour (métropole) : union des contours, simplifiée à ~500 m ;
+    """contour.json d'un territoire tuilé avec --contour (métropole) : contour_<code>.json s'il existe, sinon union
+    des contours simplifiée à ~500 m ;
     nom de la grille (TERRITOIRES), départ par défaut = chef-lieu de Paris, departs = les 96 chefs-lieux
     (chefs_lieux.json), parmi lesquels la page tire au sort."""
     gj = json.loads(Path(chemin).read_text("utf-8"))
     geoms = [shapely.geometry.shape(f["geometry"]) for f in gj["features"]] if "features" in gj \
         else [shapely.geometry.shape(gj.get("geometrie", gj))]
     zone = nettoyer_contour(shapely.simplify(shapely.union_all(shapely.make_valid(geoms)), 0.005), vers_metres)
+    # Métropole : contour fin tiré des communes s'il existe (contour_metropole.py, 20/10/2026) ; l'union simplifiée
+    # ci-dessus coupait les caps et les ports, et la page y refusait le départ
+    fin = ICI / f"contour_{code}.json"
+    if fin.exists():
+        zone = shapely.geometry.shape(json.loads(fin.read_text("utf-8")))
     nom = TERRITOIRES[code]["nom"]
     chefs = ICI / "chefs_lieux.json"
     paris = next((c for c in json.loads(chefs.read_text("utf-8")) if c["dep"] == "75"), None) if chefs.exists() else None

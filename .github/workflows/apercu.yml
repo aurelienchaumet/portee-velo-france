@@ -12,6 +12,7 @@ on:
       - coeur.js
       - tuiles-worker.js
       - osm-contrib.js
+      - chaine/contour_fr.json
       - classement.html
       - deploiement/**
       - wrangler.jsonc
@@ -47,6 +48,12 @@ jobs:
             gh release download "$tag" -p "$tag.tar" -O "/tmp/$tag.tar"
             mkdir -p "tuiles/$zone" && tar -xf "/tmp/$tag.tar" -C "tuiles/$zone"
           done
+          # Contour de la métropole pour la page (chaine/contour_fr.json, contour_metropole.py, 20/10/2026) : remplace
+          # celui de la release, simplifié à ~500 m, qui refusait les départs sur les caps et dans les ports
+          if [ -f tuiles/fr/contour.json ] && [ -f chaine/contour_fr.json ]; then
+            jq -c --slurpfile g chaine/contour_fr.json '.geometrie = $g[0]' tuiles/fr/contour.json > /tmp/contour.json
+            mv /tmp/contour.json tuiles/fr/contour.json && echo "tuiles/fr/contour.json : contour de chaine/contour_fr.json"
+          fi
       - run: node chaine/scores.js tuiles
       - run: ./deploiement/construire.sh
       # Alias = nom de la branche, réduit aux caractères permis (minuscules, chiffres, tirets)

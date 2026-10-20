@@ -1,10 +1,16 @@
 // Contribution à OpenStreetMap (17/10/2026, niveaux 1 et 2 de la boucle de contribution) : depuis un clic sur la
 // carte, montrer ce que la carte a compris de la voie (classe, vitesse, sens lus dans la tuile), ce qu'en dit OSM
-// aujourd'hui (tags lus à la demande sur Overpass), des indices de lecture, et ouvrir iD ou une note OSM à cet endroit.
+// aujourd'hui (tags lus à la demande sur l'API d'OSM, Overpass en secours), des indices de lecture, et ouvrir iD ou une
+// note OSM à cet endroit.
 // Rien n'est jamais écrit dans OSM depuis la page : on renvoie toujours vers un humain dans iD ou sur osm.org.
 //
-// Les tuiles ne portent pas l'identifiant des voies OSM : la voie est retrouvée au clic par Overpass (voies highway
-// autour du milieu de l'arête), puis choisie par la distance de ses deux extrémités à la géométrie de chaque voie.
+// Les tuiles ne portent pas l'identifiant des voies OSM : la voie est retrouvée au clic (voies highway autour de
+// l'arête), puis choisie par la distance de ses deux extrémités à la géométrie de chaque voie.
+//
+// Source (20/10/2026) : l'API principale d'OSM (api.openstreetmap.org/api/0.6/map.json, petit carré autour de l'arête).
+// Les instances publiques d'Overpass refusaient trop souvent (« rien ne s'affiche », retour d'Aurélien) ; elles restent
+// en secours. Les extrémités d'une arête sont des nœuds OSM (la tuile ne découpe que les segments de plus de 2 km) :
+// le carré qui les englobe contient donc des nœuds de la voie, et /map renvoie toute voie qui a un nœud dans le carré.
 //
 // Partie pure (lecture des tags, choix de la voie, liens) testée sous Node : chaine/test/contrib.test.js.
 // Partie page (installerContribOsm) : Leaflet et le DOM, appelée par index.html.
@@ -14,7 +20,9 @@ const CONTRIB_OSM = (() => {
   // demandes depuis la même adresse, fréquent derrière un opérateur mobile ; 504 : serveur chargé), d'où les secours
   const OVERPASS = ["https://overpass-api.de/api/interpreter", "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
     "https://overpass.private.coffee/api/interpreter"];
-  const DELAI_MS = 8000;              // par instance : au-delà, on passe à la suivante
+  const API_OSM = "https://api.openstreetmap.org/api/0.6/map.json";
+  const MARGE_API_M = 25;             // marge du carré autour des extrémités de l'arête
+  const DELAI_MS = 8000;              // par service : au-delà, on passe au suivant
   const RAYON_M = 20;                 // voies cherchées autour du milieu de l'arête
   const RAD = Math.PI / 180, R_TERRE = 6371008.8;
 
@@ -127,6 +135,55 @@ const CONTRIB_OSM = (() => {
     return meilleure && dMin / 3 <= RAYON_M ? meilleure : null;
   }
 
+  // Carré (lon/lat) qui englobe les extrémités de l'arête, élargi de margeM mètres : « ouest,sud,est,nord » pour /map
+  function boiteAutour(extremites, margeM = MARGE_API_M) {
+    const lat0 = (extremites[0][1] + extremites[1][1]) / 2;
+    const dLat = margeM / (RAD * R_TERRE), dLon = dLat / Math.cos(lat0 * RAD);
+    const lons = extremites.map(p => p[0]), lats = extremites.map(p => p[1]);
+    return [Math.min(...lons) - dLon, Math.min(...lats) - dLat, Math.max(...lons) + dLon, Math.max(...lats) + dLat]
+      .map(v => v.toFixed(7)).join(",");
+  }
+  const urlApi = extremites => `${API_OSM}?bbox=${boiteAutour(extremites)}`;
+
+  // Réponse de /map.json → voies highway au format d'Overpass « out tags geom meta » (geometry = [{lat, lon}]),
+  // pour que choisirVoie et la fiche lisent l'une ou l'autre source
+  function voiesDeLApi(json) {
+    const noeuds = new Map();
+    for (const e of json?.elements || []) if (e.type === "node") noeuds.set(e.id, e);
+    const voies = [];
+    for (const e of json?.elements || []) {
+      if (e.type !== "way" || !e.tags?.highway) continue;
+      const geometry = (e.nodes || []).map(id => noeuds.get(id)).filter(Boolean).map(n => ({ lat: n.lat, lon: n.lon }));
+      voies.push({ type: "way", id: e.id, tags: e.tags, timestamp: e.timestamp, version: e.version, geometry });
+    }
+    return voies;
+  }
+
+  // Voies autour de l'arête : API d'OSM, puis les instances d'Overpass, chacune bornée à DELAI_MS. Renvoie
+  // { elements, source } ; l'erreur dit si un service a refusé pour trop de demandes. lire = fetch (remplacé en test).
+  async function lireVoies(extremites, signal, lire = fetch) {
+    let tropDeDemandes = false;
+    const lat = (extremites[0][1] + extremites[1][1]) / 2, lon = (extremites[0][0] + extremites[1][0]) / 2;
+    const essais = [
+      { source: "api", url: urlApi(extremites), options: {}, lireJson: voiesDeLApi },
+      ...OVERPASS.map(url => ({ source: "overpass", url, options: { method: "POST", body: new URLSearchParams({ data: requete(lat, lon) }) },
+        lireJson: j => j.elements || [] })),
+    ];
+    for (const { source, url, options, lireJson } of essais) {
+      const essai = new AbortController(), minuteur = setTimeout(() => essai.abort(), DELAI_MS);
+      const relayer = () => essai.abort();
+      signal?.addEventListener("abort", relayer);
+      try {
+        const r = await lire(url, { ...options, signal: essai.signal });
+        if (r.ok) return { elements: lireJson(await r.json()), source };
+        if (r.status === 429 || r.status === 509) tropDeDemandes = true;   // 509 : quota de l'API d'OSM dépassé
+      } catch (e) { if (signal?.aborted) throw e; }   // délai dépassé ou réseau : service suivant
+      finally { clearTimeout(minuteur); signal?.removeEventListener("abort", relayer); }
+    }
+    const err = new Error("OpenStreetMap injoignable"); err.tropDeDemandes = tropDeDemandes;
+    throw err;
+  }
+
   const requete = (lat, lon) =>
     `[out:json][timeout:15];way(around:${RAYON_M},${lat.toFixed(6)},${lon.toFixed(6)})[highway];out tags geom meta;`;
 
@@ -149,7 +206,8 @@ const CONTRIB_OSM = (() => {
   // Voie modifiée dans OSM après la date des données de la carte ? (timestamp Overpass ISO, genere « AAAA-MM-JJ HH:MM »)
   const modifieeDepuis = (timestamp, genere) => !!(timestamp && genere) && new Date(timestamp) > new Date(genere.replace(" ", "T") + "Z");
 
-  return { HASHTAG, OVERPASS, DELAI_MS, TAGS_UTILES, lireTags, choisirVoie, distanceLigne, requete, lienId, lienVoie, lienHistorique, lienNote, texteNote, modifieeDepuis };
+  return { HASHTAG, API_OSM, OVERPASS, DELAI_MS, TAGS_UTILES, lireTags, choisirVoie, distanceLigne, requete, boiteAutour,
+    urlApi, voiesDeLApi, lireVoies, lienId, lienVoie, lienHistorique, lienNote, texteNote, modifieeDepuis };
 })();
 
 // ---------- Partie page : outil « Vérifier dans OSM » ----------
@@ -197,24 +255,6 @@ function installerContribOsm(o) {
     const morceaux = [o.CLASSES[P.cls[e]]?.nom || "voie", `${P.vit[e]} km/h`, SENS[P.sens[e]] || ""];
     if (P.rd[e]) morceaux.push("départementale"); else if (P.nat && P.nat[e]) morceaux.push("nationale");
     return morceaux.filter(Boolean).join(", ");
-  }
-
-  // Instances l'une après l'autre, chacune bornée à DELAI_MS ; l'erreur dit si c'était un refus pour trop de demandes
-  async function lireOverpass(lat, lon, signal) {
-    let tropDeDemandes = false;
-    for (const url of C.OVERPASS) {
-      const essai = new AbortController(), minuteur = setTimeout(() => essai.abort(), C.DELAI_MS);
-      const relayer = () => essai.abort();
-      signal.addEventListener("abort", relayer);
-      try {
-        const r = await fetch(url, { method: "POST", body: new URLSearchParams({ data: C.requete(lat, lon) }), signal: essai.signal });
-        if (r.ok) return (await r.json()).elements || [];
-        if (r.status === 429) tropDeDemandes = true;
-      } catch (e) { if (signal.aborted) throw e; }   // délai dépassé ou réseau : instance suivante
-      finally { clearTimeout(minuteur); signal.removeEventListener("abort", relayer); }
-    }
-    const err = new Error("Overpass indisponible"); err.tropDeDemandes = tropDeDemandes;
-    throw err;
   }
 
   // surVoie : une voie est là (dans nos données) mais sans fiche OSM : iD s'ouvre simplement à cet endroit
@@ -266,14 +306,14 @@ function installerContribOsm(o) {
     let elements = insp.cache.get(cle);
     if (!elements) {
       const ctrl = insp.ctrl = new AbortController();
-      try { elements = await lireOverpass(lat, lon, ctrl.signal); }
+      try { elements = (await C.lireVoies(ext, ctrl.signal)).elements; }
       catch (err) {
         if (err.name === "AbortError") return;
         const reessayer = el("button", { type: "button", class: "lien-action", texte: "Réessayer" });
         reessayer.addEventListener("click", () => clic(ll));
         remplir(zoneOsm, el("p", { class: "note", texte: err.tropDeDemandes
-          ? "Le service qui lit OpenStreetMap (Overpass) limite les demandes trop rapprochées : réessayez dans une minute. Les liens restent utilisables :"
-          : "Le service qui lit OpenStreetMap (Overpass) est chargé ou injoignable pour l'instant. Les liens restent utilisables :" }),
+          ? "OpenStreetMap limite les demandes trop rapprochées : réessayez dans une minute. Les liens restent utilisables :"
+          : "OpenStreetMap ne répond pas pour l'instant. Les liens restent utilisables :" }),
           reessayer, boutons(lat, lon, null, carteTexte, true));
         return;
       }

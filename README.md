@@ -43,7 +43,7 @@ La page (`index.html`) s'ouvre sur un département de métropole tiré au sort, 
 | Sans départementales et nationales | Pistes, bandes, rues, voies communales et chemins ; les départementales, les nationales et les routes principales ne sont permises que pour les traverser (au plus 80 m, giratoire compris) |
 | Sans les routes | Pistes, voies vertes et bandes cyclables, reliées entre elles par de courtes liaisons (au plus 200 m de rue calme ou de chemin) |
 
-**Corriger OpenStreetMap depuis la carte.** Le bouton « Vérifier une voie dans OpenStreetMap » montre, pour la voie cliquée, ce que la carte en a compris (classe, vitesse, sens, départementale ou nationale), ce qu'en dit OSM aujourd'hui (tags lus à la demande sur Overpass) et des indices de lecture, puis ouvre l'éditeur iD sur la voie ou une note sur osm.org. Rien n'est écrit dans OSM depuis la page : la correction reste faite par une personne (`osm-contrib.js`).
+**Corriger OpenStreetMap depuis la carte.** Le bouton « Vérifier une voie dans OpenStreetMap » montre, pour la voie cliquée, ce que la carte en a compris (classe, vitesse, sens, départementale ou nationale), ce qu'en dit OSM aujourd'hui (tags lus à la demande sur l'API d'OpenStreetMap, Overpass en secours) et des indices de lecture, puis ouvre l'éditeur iD sur la voie ou une note sur osm.org. Rien n'est écrit dans OSM depuis la page : la correction reste faite par une personne (`osm-contrib.js`).
 
 **Me localiser.** Un bouton à côté de la recherche d'adresse place le départ (ou l'arrivée) sur la position du téléphone.
 
@@ -349,7 +349,7 @@ Les tuiles de métropole ne sont pas dans git : `curl -L -o tuiles-fr.tar https:
 | `index.html` | La page : carte, quatre onglets, simulation, services |
 | `classement.html` | Classement des départements et des DROM |
 | `coeur.js` | Cœur de calcul partagé (page, scores, diagnostics) : décodage, recollage, graphes, Dijkstra, confort, comptages |
-| `osm-contrib.js` | « Vérifier une voie dans OpenStreetMap » : lecture de la voie, Overpass, liens iD et notes |
+| `osm-contrib.js` | « Vérifier une voie dans OpenStreetMap » : lecture de la voie (API d'OSM, Overpass en secours), liens iD et notes |
 | `build_graph_velo.py` | Règles de classement des voies, reprises de la carte de Marennes-Oléron |
 | `chaine/extraire.py` | PBF → GeoParquet (QuackOSM) |
 | `chaine/format_tuile.py` | Grilles des territoires, encodeur du format de tuile |
@@ -369,7 +369,7 @@ Les tuiles de métropole ne sont pas dans git : `curl -L -o tuiles-fr.tar https:
 - Réseau, mairies, plans d'eau, trait de côte : © contributeurs [OpenStreetMap](https://www.openstreetmap.org/copyright) (ODbL) ; extraits [Geofabrik](https://download.geofabrik.de/), polygones terrestres [osmdata.openstreetmap.de](https://osmdata.openstreetmap.de/).
 - Équipements : Insee, [Base permanente des équipements](https://www.insee.fr/fr/statistiques/8217525) 2025. Habitants : Insee, Filosofi 2021 carroyé (métropole) et 2019 (Martinique, Réunion). Licence Ouverte / Etalab.
 - Communes, contours et intercommunalités : [geo.api.gouv.fr](https://geo.api.gouv.fr) (COG de l'Insee, Admin Express de l'IGN).
-- Fond de carte : Plan IGN (Géoplateforme) ; recherche d'adresses : Géoplateforme, avec repli sur l'API Adresse ; voies OSM à jour : instances publiques d'Overpass.
+- Fond de carte : Plan IGN (Géoplateforme) ; recherche d'adresses : Géoplateforme, avec repli sur l'API Adresse ; voies OSM à jour : API d'OpenStreetMap, instances publiques d'Overpass en secours.
 - Bibliothèques : [Leaflet](https://leafletjs.com/), [d3](https://d3js.org/), [QuackOSM](https://github.com/kraina-ai/quackosm), [DuckDB](https://duckdb.org/).
 - Inspiration : [À portée de tram](https://tram.camilleroux.com/) de Camille Roux, issu du [NYC Transit Time Cartogram](https://castrio.me/nyc/) d'Anthony Castrio et de sa [déclinaison parisienne](https://github.com/JulesGrandin/paris-temps-transport) par Jules Grandin. Modèle de calcul repris d'[À portée de vélo – Marennes-Oléron](https://github.com/sit-pmo/portee-velo).
 
