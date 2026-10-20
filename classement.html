@@ -3,6 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- Base d'URL des données, comme dans index.html : vide = même site -->
+<meta name="donnees" content="">
 <title>À portée de vélo – Classement des départements</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -117,6 +119,7 @@ ol.classement .chiffre{font-variant-numeric:tabular-nums;font-weight:600}
 <script>
 (async function () {
   const $ = s => document.querySelector(s);
+  const BASE_DONNEES = (document.querySelector('meta[name="donnees"]')?.content || "").replace(/([^/])$/, "$1/");
   const DROM = { "971": "Guadeloupe", "972": "Martinique", "973": "Guyane", "974": "La Réunion", "976": "Mayotte" };
   const NOTES = {
     tout: "Pistes, bandes, rues et routes, au temps réel (comme « Avec les routes » sur la carte).",
@@ -129,8 +132,8 @@ ol.classement .chiffre{font-variant-numeric:tabular-nums;font-weight:600}
   let classement, departements, contoursDrom;
   try {
     const lire = u => fetch(u).then(r => { if (!r.ok) throw new Error(`${u} : ${r.status}`); return r.json(); });
-    [classement, departements, ...contoursDrom] = await Promise.all(["tuiles/classement.json", "tuiles/departements.json",
-      ...Object.keys(DROM).map(z => `tuiles/${z}/contour.json`)].map(u => lire(u).catch(e => (u.includes("/97") ? null : Promise.reject(e)))));
+    [classement, departements, ...contoursDrom] = await Promise.all([BASE_DONNEES + "tuiles/classement.json", BASE_DONNEES + "tuiles/departements.json",
+      ...Object.keys(DROM).map(z => `${BASE_DONNEES}tuiles/${z}/contour.json`)].map(u => lire(u).catch(e => (u.includes("/97") ? null : Promise.reject(e)))));
   } catch (e) {
     $("#erreur").hidden = false;
     $("#erreur").textContent = `Données indisponibles (${e.message}).`;
@@ -140,7 +143,7 @@ ol.classement .chiffre{font-variant-numeric:tabular-nums;font-weight:600}
   const H = new URLSearchParams(location.hash.slice(1));
   let mode = H.get("m") === "amenage" ? "amenage" : "tout";
   // Scores des communes (facultatif : sans le fichier, seul le classement des chefs-lieux est proposé)
-  const communes = await fetch("tuiles/scores/communes.json").then(r => (r.ok ? r.json() : null)).catch(() => null);
+  const communes = await fetch(BASE_DONNEES + "tuiles/scores/communes.json").then(r => (r.ok ? r.json() : null)).catch(() => null);
   let depart = communes && H.get("d") === "communes" ? "communes" : "chef";
   const C = communes && communes.communes;
   const nCommunes = n => `${n.toLocaleString("fr-FR")} commune${n > 1 ? "s" : ""}`;
@@ -230,7 +233,7 @@ ol.classement .chiffre{font-variant-numeric:tabular-nums;font-weight:600}
       if (national === null) {                 // une seule lecture ; false si le fichier manque
         national = "en cours";
         $("#note-clic").textContent = "Chargement des 35 000 communes…";
-        const G = await lire("tuiles/scores/contours/france.json");
+        const G = await lire(BASE_DONNEES + "tuiles/scores/contours/france.json");
         national = G ? L.geoJSON(G, { renderer: rendu, style: styleNational, onEachFeature: surCommune }) : false;
         majModes();
         return;
@@ -240,13 +243,13 @@ ol.classement .chiffre{font-variant-numeric:tabular-nums;font-weight:600}
     }
     if (national && national !== "en cours") national.remove();
     detail.addTo(aplats);
-    if (contoursIndex === undefined) contoursIndex = await lire("tuiles/scores/contours/index.json");
+    if (contoursIndex === undefined) contoursIndex = await lire(BASE_DONNEES + "tuiles/scores/contours/index.json");
     if (!contoursIndex) return;
     const b = carte.getBounds();
     for (const [dep, [w, sud, e, n]] of Object.entries(contoursIndex)) {
       if (contoursLus.has(dep) || e < b.getWest() || w > b.getEast() || n < b.getSouth() || sud > b.getNorth()) continue;
       contoursLus.set(dep, null);
-      lire(`tuiles/scores/contours/${dep}.json`).then(G => {
+      lire(`${BASE_DONNEES}tuiles/scores/contours/${dep}.json`).then(G => {
         if (G) contoursLus.set(dep, L.geoJSON(G, { renderer: rendu, style: styleCommune, onEachFeature: surCommune }).addTo(detail));
       });
     }
