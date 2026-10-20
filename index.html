@@ -2284,13 +2284,20 @@ document.getElementById("replier").addEventListener("click", e => {
       } catch (e) { if (e.name === "AbortError") return; }
     }
     if (!fc) { liste.innerHTML = `<li class="vide">Le service d'adresses ne répond pas. Placez le repère directement sur la carte.</li>`; liste.hidden = false; return; }
-    const res = (fc.features || []).filter(f => dansZone(L.latLng(f.geometry.coordinates[1], f.geometry.coordinates[0]))).slice(0, 6);
+    // Recherche sur toute la France (20/10/2026, demande d'Aurélien) : une adresse d'un autre territoire recharge la
+    // page sur sa grille, départ posé (lien #d=). Territoire d'après le code Insee ; COM (975, 977, 978, 98x) écartées.
+    const zoneDe = f => { const c = String(f.properties.citycode || ""); return /^97[1-46]/.test(c) ? c.slice(0, 3) : /^9[78]/.test(c) ? null : "fr"; };
+    const res = (fc.features || []).filter(zoneDe).slice(0, 6);
     liste.innerHTML = res.length
       ? res.map((f, i) => `<li><button type="button" data-i="${i}">${echapper(f.properties.name || f.properties.label)}<small>${echapper([f.properties.postcode, f.properties.city].filter(Boolean).join(" "))}</small></button></li>`).join("")
-      : `<li class="vide">Aucune adresse trouvée ${terr ? "sur " + terr.nom : LIEU.en} pour « ${echapper(q)} ».</li>`;
+      : `<li class="vide">Aucune adresse trouvée pour « ${echapper(q)} ».</li>`;
     liste.hidden = false;
     liste.querySelectorAll("button").forEach(b => b.addEventListener("click", () => {
-      const f = res[+b.dataset.i], ll = L.latLng(f.geometry.coordinates[1], f.geometry.coordinates[0]);
+      const f = res[+b.dataset.i], ll = L.latLng(f.geometry.coordinates[1], f.geometry.coordinates[0]), z = zoneDe(f);
+      if (z !== ZONE || (terr && !dansZone(ll))) {   // autre territoire (ou hors de la vue Oléron / PMO) : on y va
+        location.href = location.pathname + (z === "fr" ? "" : `?zone=${z}`) + `#d=${ll.lat.toFixed(5)},${ll.lng.toFixed(5)}`;
+        return;
+      }
       champ.value = f.properties.label;
       fermerListe();
       if (etat.cible === "depart") { suivre(false); placerDepart(ll, true); } else definirArrivee(ll);
