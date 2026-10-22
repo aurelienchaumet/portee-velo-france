@@ -280,7 +280,8 @@ button:focus-visible,input:focus-visible,.leaflet-marker-icon:focus-visible{outl
 .reglages>summary{font-size:.85rem}
 .reglages[open]>summary{margin-bottom:10px}
 .reglages .bascule+.bascule,.reglages .bascule.reseau{margin-top:10px}
-#case-vv{margin-top:8px}
+#case-vv{margin-top:8px;flex-wrap:nowrap;align-items:flex-start}
+#case-vv input{margin-top:2px}
 #case-vv[hidden]{display:none}
 .panneau.diag-actif[data-q="4"] .bloc-reglages{display:none}
 .panneau[data-q="1"] .reglages>summary,.panneau[data-q="1"] #bascule-symbo{display:none}   /* onglet 1 : réseau seul, toujours visible */
@@ -862,7 +863,9 @@ document.getElementById("replier").addEventListener("click", e => {
     get speed() { return this._speed || (this._speed = construireGraphe(P, "speed")); },
     get speedsansdep() { return this._speedsansdep || (this._speedsansdep = construireGraphe(P, "speedsansdep")); },
     get speedvv() { return this._speedvv || (this._speedvv = construireGraphe(P, "speedvv")); },
-    get speedvvsansdep() { return this._speedvvsansdep || (this._speedvvsansdep = construireGraphe(P, "speedvvsansdep")); } });
+    get speedvvsansdep() { return this._speedvvsansdep || (this._speedvvsansdep = construireGraphe(P, "speedvvsansdep")); },
+    get speedconfort() { return this._speedconfort || (this._speedconfort = construireGraphe(P, "speedconfort")); },
+    get speedvvconfort() { return this._speedvvconfort || (this._speedvvconfort = construireGraphe(P, "speedvvconfort")); } });
   function preparerSimulation() {
     if (!vue.P || !sim.troncons.length) { vue.sim = null; sim.nonRaccordes = []; sim.isoles = []; sim.horsZone = []; return; }
     const r = ajouterTroncons(vue.P, sim.troncons);   // vue.P porte déjà le masque territoire et l'alias confort
@@ -2515,7 +2518,7 @@ document.getElementById("replier").addEventListener("click", e => {
     const q = Number(h.get("q")) || (symbo === "confort" ? 2 : 1);
     const crxLien = (h.get("x") || "").split(",").map(s => ["rd", "autres"].indexOf(s)).filter(c => c >= 0);
     const mode = ["amenage", "sansdep", ...Object.keys(CFG.facteurVitesse)].includes(h.get("m")) ? h.get("m") : "tout";
-    return { crx: crxLien, q: q >= 1 && q <= 4 && (q === 1 || !estSpeed(mode)) ? q : 1, mode, symbo, depart: ll(h.get("d")), arrivee: ll(h.get("a")), suivi: h.get("s") === "1",
+    return { crx: crxLien, q: q >= 1 && q <= 4 && (q <= 2 || !estSpeed(mode)) ? q : 1, mode, symbo, depart: ll(h.get("d")), arrivee: ll(h.get("a")), suivi: h.get("s") === "1",
       troncons, tronconsIllisibles };
   }
   let minuteurPartage = null;

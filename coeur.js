@@ -175,9 +175,10 @@ function construireGraphe(P, mode) {
     for (let v = 0; v < n; v++) accrochable[v] = actif[v] && taille[racine(v)] >= CFG.morceauMinM ? 1 : 0;
   }
   const G = { mode, n, nArcs, off, cible, source, poids, arete, actif, accrochable };
-  // Confort speedbike : même réseau que son mode de base, donc même rattachement de la grille
+  // Graphe tranquille : même réseau que son mode de base, donc même rattachement de la grille (la page pose aussi
+  // l'alias confort → tout sur sa fenêtre, mais pas sur le couloir d'un itinéraire lointain)
   const base = Object.keys(CFG.modeConfort).find(b => CFG.modeConfort[b] === mode);
-  if (speed && base && P.grille.pro[base] && !P.grille.pro[mode]) { P.grille.pro[mode] = P.grille.pro[base]; P.grille.dist[mode] = P.grille.dist[base]; }
+  if (base && P.grille.pro[base] && !P.grille.pro[mode]) { P.grille.pro[mode] = P.grille.pro[base]; P.grille.dist[mode] = P.grille.dist[base]; }
   if ((sansDep || speed) && !P.grille.pro[mode]) rattacherGrille(P, G);
   return G;
 }
