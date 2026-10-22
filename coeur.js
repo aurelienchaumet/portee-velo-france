@@ -636,6 +636,14 @@ function minutesTranquilles(P, Gc, lon, lat, limiteS) {
   return min;
 }
 
+// Temps réels (secondes) des arcs d'un graphe tranquille : pénalité de confort remplacée par celle de son réseau
+// de base (confort → tout, speedconfort → speed…), pour donner la durée d'un itinéraire tranquille
+function poidsReels(P, Gc) {
+  const base = Object.keys(CFG.modeConfort).find(b => CFG.modeConfort[b] === Gc.mode) || "tout";
+  const penBase = CFG.penalites[base], penC = CFG.penalites[Gc.mode] || CFG.penalites.confort;
+  return Gc.poids.map((w, k) => { const c = P.cls[Gc.arete[k]]; return w * penBase[c] / penC[c]; });
+}
+
 // Teinte de confort d'une cellule : 0 bleu (tranquille), 1 gris, 2 orange, d'après le temps le plus rapide m et
 // le temps tranquille mc (minutes)
 function teinteConfort(m, mc) {
@@ -1578,7 +1586,7 @@ function equipementsFenetre(Cm, ix, g, minutes, compte) {
 }
 
 if (typeof module !== "undefined") {
-  module.exports = { CFG, preparer, construireGraphe, lignesReseau, expose, minutesTranquilles, teinteConfort, CELLULE_KM2, traitsNoirs, grilleDeparts, cumulerMaillons, dijkstra, accrocher, rattacherGrille, tempsGrille, itineraire, etapes, couverture, champIsolignes, accesSecondes, distanceM,
+  module.exports = { CFG, preparer, construireGraphe, lignesReseau, expose, minutesTranquilles, poidsReels, teinteConfort, CELLULE_KM2, traitsNoirs, grilleDeparts, cumulerMaillons, dijkstra, accrocher, rattacherGrille, tempsGrille, itineraire, etapes, couverture, champIsolignes, accesSecondes, distanceM,
     surfaceKm2, GRILLE_FRANCE, definirGrille, contracter, dijkstraRapide, graphRapide, ajusterContracte, emballerLignes, deballerLignes, l93VersWgs84, encoderTroncons, decoderTroncons, lireGeoJSON, versGeoJSON, longueurTroncon, noeudsProches, areteProche, aretesProches, croisements, voies, voieAuClic, decoderMasque, appliquerMasque, ajouterTroncons, gainSurface, gainConfort, departs, sourcesDijkstra, decompresserTuile, decoderTuile, recollerTuiles, ChargeurTuiles,
     preparerComptages, indexerComptages, compterAtteints, plusProcheParFonction, casFonctions, CAS, equipementsFenetre, minutesAcces };
 }

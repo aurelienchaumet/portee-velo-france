@@ -1157,7 +1157,7 @@ document.getElementById("replier").addEventListener("click", e => {
     $("#consigne").hidden = true; $("#resultat").hidden = false;
     const s = aff(), Gm = s.G && s.G[etat.mode], { lat, lng } = etat.arrivee;
     const acc = etat.res && meilleure(etat.res, departs(s.P, Gm, lng, lat));
-    if (acc) { dessinerTrajet(s.P, Gm, etat.res, etat.acc, acc); return; }
+    if (acc) { dessinerTrajet(s.P, Gm, etat.res, etat.acc, acc, tranquille(s.P, confortActif() && grapheConfort(s), lng, lat)); return; }
     $("#etapes").innerHTML = "";
     // Tuiles présentes sous l'arrivée (territoire et sa marge) : l'itinéraire peut se calculer
     const tuilee = chargeur.existe.has(chargeur.tuileDe(lng, lat).join("_"));
@@ -1189,7 +1189,8 @@ document.getElementById("replier").addEventListener("click", e => {
       const res = dijkstra(G, sourcesDijkstra(accsD), 0, Infinity, accsA.length === 1 ? accsA[0].noeud : -1);
       const accA = meilleure(res, accsA);
       if (accA) {
-        dessinerTrajet(Pc, G, res, accsD, accA);
+        const Gc = confortActif() && construireGraphe(Pc, CFG.modeConfort[mode]);
+        dessinerTrajet(Pc, G, res, accsD, accA, tranquille(Pc, Gc, a.lng, a.lat));
         if (f.partielle) $("#detail").textContent += ". Une partie du réseau n'a pas pu être chargée : itinéraire peut-être plus long que nécessaire.";
         return;
       }
@@ -1213,16 +1214,40 @@ document.getElementById("replier").addEventListener("click", e => {
     return m;
   }
 
-  // accsD : départs possibles (voir departs) ; celui d'où part réellement l'itinéraire sert aux tirets et à la distance
-  function dessinerTrajet(P, Gm, res, accsD, acc) {
+  // Onglet Confort : itinéraire tranquille du départ à l'arrivée (graphe tranquille Gc, sans la tolérance de
+  // departLibreM autour du départ), au temps réel ; null hors confort ou sans itinéraire
+  function tranquille(P, Gc, lng, lat) {
+    if (!Gc) return null;
+    const accsD = departs(P, Gc, etat.depart.lng, etat.depart.lat), accsA = departs(P, Gc, lng, lat);
+    if (!accsD.length || !accsA.length) return null;
+    const res = dijkstra(Gc, sourcesDijkstra(accsD), 0, Infinity, accsA.length === 1 ? accsA[0].noeud : -1);
+    const acc = meilleure(res, accsA);
+    if (!acc) return null;
+    const arcs = itineraire(Gc, res, acc.noeud), reel = poidsReels(P, Gc);
+    const racine = arcs.length ? Gc.source[arcs[0]] : acc.noeud, accD = accsD.find(x => x.noeud === racine) || accsD[0];
+    let total = accesSecondes(accD.distM) + accesSecondes(acc.distM);
+    for (const k of arcs) total += reel[k];
+    return { G: { ...Gc, poids: reel }, arcs, acc, accD, total };
+  }
+
+  // accsD : départs possibles (voir departs) ; celui d'où part réellement l'itinéraire sert aux tirets et à la distance.
+  // tq (onglet Confort) : itinéraire tranquille, dessiné et détaillé à la place du plus rapide, rappelé en pointillé
+  function dessinerTrajet(P, Gm, res, accsD, acc, tq = null) {
     trace.clearLayers();
-    const arcs = itineraire(Gm, res, acc.noeud);
+    const pt = v => [P.lat[v], P.lon[v]];
+    const rapide = res.dist[acc.noeud] + accesSecondes(acc.distM);
+    if (tq) {
+      const arcsR = itineraire(Gm, res, acc.noeud);
+      if (arcsR.length) L.polyline([pt(Gm.source[arcsR[0]]), ...arcsR.map(k => pt(Gm.cible[k]))],
+        { pane: "trace", color: "#13252B", weight: 2.5, opacity: .7, dashArray: "6 6", interactive: false }).addTo(trace);
+      Gm = tq.G; acc = tq.acc; accsD = [tq.accD];
+    }
+    const arcs = tq ? tq.arcs : itineraire(Gm, res, acc.noeud);
     const racine = arcs.length ? Gm.source[arcs[0]] : acc.noeud, accD = accsD.find(x => x.noeud === racine) || accsD[0];
-    const total = res.dist[acc.noeud] + accesSecondes(acc.distM);
+    const total = tq ? tq.total : rapide;
     let long = 0, amenage = 0;
     for (const k of arcs) { const e = Gm.arete[k]; long += P.lm[e]; if (P.cls[e] <= 1) amenage += P.lm[e]; }
     const distance = long + (accD.distM + acc.distM) * CFG.detourAcces;
-    const pt = v => [P.lat[v], P.lon[v]];
     const tout = arcs.length ? [pt(Gm.source[arcs[0]]), ...arcs.map(k => pt(Gm.cible[k]))] : [pt(acc.noeud)];
     L.polyline(tout, { pane: "trace", color: "#fff", weight: 8, opacity: .95, interactive: false }).addTo(trace);
     let cls = -1, morceau = [];
@@ -1237,7 +1262,8 @@ document.getElementById("replier").addEventListener("click", e => {
     L.polyline([etat.depart, pt(accD.noeud)], tirets).addTo(trace);
     L.polyline([pt(acc.noeud), etat.arrivee], tirets).addTo(trace);
     $("#duree").textContent = fmtMin(total);
-    $("#detail").textContent = `${fmtKm(distance)}, dont ${fmtKm(amenage)} sur piste ou bande cyclable (${Math.round(distance ? amenage / distance * 100 : 0)} %)`;
+    $("#detail").textContent = `${tq ? "Trajet tranquille : " : ""}${fmtKm(distance)}, dont ${fmtKm(amenage)} sur piste ou bande cyclable (${Math.round(distance ? amenage / distance * 100 : 0)} %)`
+      + (tq ? `. Le plus rapide (pointillé) : ${fmtMin(rapide)}, soit ${fmtMin(Math.max(0, total - rapide))} de plus pour y aller tranquillement` : "");
     // Les tuiles ne portent pas les noms de rue : étapes par type de voie
     $("#etapes").innerHTML = etapes(P, Gm, arcs).map(et =>
       `<li style="--c:${CLASSES[et.cls].couleur}"><span class="nom">${echapper(P.noms[et.nom] || CLASSES[et.cls].nom)}</span><span class="chiffre">${fmtKm(et.m)}</span><span class="chiffre">${fmtMin(et.s)}</span></li>`).join("");
