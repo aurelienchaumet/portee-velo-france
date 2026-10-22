@@ -233,6 +233,7 @@ button:focus-visible,input:focus-visible,.leaflet-marker-icon:focus-visible{outl
 .onglets{display:grid;grid-template-columns:repeat(4,1fr);background:var(--abysse);padding:0 10px}
 .onglets button{font:600 .84rem var(--sans);border:0;border-radius:8px 8px 0 0;padding:9px 2px 10px;background:transparent;color:#c9edf5;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:1px}
 .onglets button[aria-selected="true"]{background:var(--papier);color:var(--abysse)}
+.onglets button:disabled{opacity:.4;cursor:not-allowed}   /* speedbike : onglets propres au vélo classique */
 .question{margin:0;padding:12px 22px 2px;font-family:var(--serif);font-size:1.02rem;line-height:1.3;color:var(--abysse)}
 .panneau[data-q="1"] .bloc[data-q]:not([data-q~="1"]),.panneau[data-q="2"] .bloc[data-q]:not([data-q~="2"]),
 .panneau[data-q="3"] .bloc[data-q]:not([data-q~="3"]),.panneau[data-q="4"] .bloc[data-q]:not([data-q~="4"]){display:none}
@@ -278,7 +279,9 @@ button:focus-visible,input:focus-visible,.leaflet-marker-icon:focus-visible{outl
 .lire{margin-top:8px}
 .reglages>summary{font-size:.85rem}
 .reglages[open]>summary{margin-bottom:10px}
-.reglages .bascule+.bascule{margin-top:10px}
+.reglages .bascule+.bascule,.reglages .bascule.reseau{margin-top:10px}
+#case-vv{margin-top:8px}
+#case-vv[hidden]{display:none}
 .panneau.diag-actif[data-q="4"] .bloc-reglages{display:none}
 .panneau[data-q="1"] .reglages>summary,.panneau[data-q="1"] #bascule-symbo{display:none}   /* onglet 1 : réseau seul, toujours visible */
 .acces .deplier{all:unset;cursor:pointer;font-weight:600}
@@ -414,6 +417,14 @@ dialog.apropos .fermer{position:absolute;top:10px;right:10px;width:34px;height:3
     <div class="bloc bloc-reglages" data-q="1 3 4">
       <details class="reglages" id="reglages" open>
         <summary id="reglages-resume">Réglages de la carte</summary>
+        <div class="bascule" id="bascule-velo" role="group" aria-label="Type de vélo">
+          <button type="button" data-velo="classique" aria-pressed="true" title="Vélo ou VAE classique : 20 km/h sur revêtement lisse, pistes et voies vertes comprises">Vélo</button>
+          <button type="button" data-velo="speed" aria-pressed="false" title="Speedbike (VAE jusqu'à 45 km/h) : 32 km/h sur revêtement lisse, sur la chaussée seulement">Speedbike</button>
+        </div>
+        <label class="case-reseau" for="tolerer-vv" id="case-vv" hidden>
+          <input type="checkbox" id="tolerer-vv">
+          <span>Tolérer pistes et voies vertes (interdit en principe), à ~29 km/h</span>
+        </label>
         <div class="bascule reseau" role="group" aria-label="Réseau utilisé">
           <button type="button" data-mode="amenage" aria-pressed="false" title="Pistes, voies vertes et bandes cyclables seulement">Sans les routes</button>
           <button type="button" data-mode="sansdep" aria-pressed="false" title="Pistes, bandes, rues, voies communales et chemins : routes départementales et nationales interdites, sauf pour les traverser">Sans départementales et nationales</button>
@@ -430,7 +441,7 @@ dialog.apropos .fermer{position:absolute;top:10px;right:10px;width:34px;height:3
       <h2 id="titre-couverture">Surface de terre atteinte depuis ce départ</h2>
       <div id="couverture" class="couverture"></div>
       <details class="aide"><summary>Comment lire</summary>
-        <p class="note" id="note-couverture">Barre : part du disque qu'on couvrirait à 20 km/h en ligne droite (5 km de rayon en 15 min). La mer ne compte pas.</p>
+        <p class="note" id="note-couverture"></p>
       </details>
     </div>
 
@@ -616,6 +627,21 @@ document.getElementById("replier").addEventListener("click", e => {
   const SEUILS = [5, 10, 15, 20, 30, 45, 60];
   const ISO = [15, 30, 45, 60];
   const LIMITE_S = 3600;                       // calcul borné à 60 min (dernier palier) : invariant de marge des tuiles
+  // Speedbike : 45 min à 32 km/h = 24 km, sous la marge de la fenêtre 7 × 7 (30 km) ; 60 min (32 km) la dépasserait
+  const LIMITE_SPEED_S = 2700;
+  const estSpeed = mode => mode in CFG.facteurVitesse;
+  const limiteS = () => (estSpeed(etat.mode) ? LIMITE_SPEED_S : LIMITE_S);
+  // Mode de calcul = vélo × réseau : speed, speedsansdep ; voies vertes tolérées : speedvv, speedvvsansdep
+  const reseauDe = mode => (!estSpeed(mode) ? mode : mode.endsWith("sansdep") ? "sansdep" : "tout");
+  const tolereVV = mode => mode.startsWith("speedvv");
+  const modeDe = (reseau, velo, vv = false) => (velo !== "speed" ? reseau
+    : (vv ? "speedvv" : "speed") + (reseau === "sansdep" ? "sansdep" : ""));
+  const vitesseRef = () => 20 * (CFG.facteurVitesse[etat.mode] || 1);   // km/h sur revêtement lisse : disque de la barre
+  function majNoteCouverture() {
+    if (masqueZone) return;                    // territoire : part des cellules du territoire (texte posé au chargement)
+    const v = vitesseRef(), r = v / 4;
+    $("#note-couverture").textContent = `Barre : part du disque qu'on couvrirait à ${v} km/h en ligne droite (${r.toLocaleString("fr-FR")} km de rayon en 15 min). La mer ne compte pas.`;
+  }
   const COULEURS = ["#FFDE12", "#C5D93E", "#8FCB5E", "#5BB86E", "#2E9A5C", "#0485A1", "#005267", "#1E2529"];
   const RGB = COULEURS.map(h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16)));
   const CLASSES = [
@@ -643,7 +669,16 @@ document.getElementById("replier").addEventListener("click", e => {
     tout: "Pistes et bandes, complétées par les routes et chemins, au temps réel (+5 % sur route pour préférer une piste qui la longe).",
     sansdep: `Pistes et bandes, rues, voies communales et chemins, sans jamais emprunter une départementale ni une nationale (numéro D… ou N… dans OpenStreetMap, ou route principale) : on peut seulement la traverser, giratoire compris (au plus ${CFG.traverseeDepMaxM} m). Une piste le long d'une départementale reste permise. En gris, les secteurs à plus de ${CFG.accesMaxM.sansdep} m de ce réseau.`,
   };
-  const LIBELLES_MODE = { amenage: "sans les routes", sansdep: "sans départementales et nationales", tout: "avec les routes" };
+  const NOTE_SPEED = "Speedbike (VAE jusqu'à 45 km/h, cyclomoteur au sens du Code de la route) : pistes cyclables, voies vertes, chemins et trottoirs interdits ; une route qui porte une bande se prend dans la voie de circulation. 32 km/h sur revêtement lisse, calcul borné à 45 min. Les zones 30 et les doubles sens cyclables (interdits au speedbike) ne sont pas connus des tuiles.";
+  const NOTE_SANSDEP_SPEED = `Départementales et nationales interdites, sauf pour les traverser (au plus ${CFG.traverseeDepMaxM} m). En gris, les secteurs à plus de ${CFG.accesMaxM.speedsansdep} m de ce réseau.`;
+  const NOTE_VV = "Option « tolérer » : pistes, voies vertes et chemins permis malgré l'interdiction de principe, à ~29 km/h (partagés avec piétons et cyclistes). Ce qu'on fait parfois en pratique, pas ce que permet le Code de la route.";
+  NOTES.speed = NOTE_SPEED;
+  NOTES.speedsansdep = `${NOTE_SPEED} ${NOTE_SANSDEP_SPEED}`;
+  NOTES.speedvv = `${NOTE_SPEED} ${NOTE_VV}`;
+  NOTES.speedvvsansdep = `${NOTE_SPEED} ${NOTE_SANSDEP_SPEED} ${NOTE_VV}`;
+  const LIBELLES_MODE = { amenage: "sans les routes", sansdep: "sans départementales et nationales", tout: "avec les routes",
+    speed: "speedbike", speedsansdep: "speedbike sans départementales et nationales",
+    speedvv: "speedbike, voies vertes tolérées", speedvvsansdep: "speedbike sans départementales, voies vertes tolérées" };
 
   // ---------- Données : index des tuiles et contour du département ----------
   // fetch ne fonctionne pas en ouvrant le fichier directement (file://) : il faut un serveur (GitHub Pages,
@@ -823,7 +858,11 @@ document.getElementById("replier").addEventListener("click", e => {
   const graphes = (P, Gt) => ({ tout: Gt || construireGraphe(P, "tout"),
     get amenage() { return this._amenage || (this._amenage = construireGraphe(P, "amenage")); },
     get confort() { return this._confort || (this._confort = construireGraphe(P, "confort")); },
-    get sansdep() { return this._sansdep || (this._sansdep = construireGraphe(P, "sansdep")); } });   // ~30 à 150 ms, grille comprise
+    get sansdep() { return this._sansdep || (this._sansdep = construireGraphe(P, "sansdep")); },   // ~30 à 150 ms, grille comprise
+    get speed() { return this._speed || (this._speed = construireGraphe(P, "speed")); },
+    get speedsansdep() { return this._speedsansdep || (this._speedsansdep = construireGraphe(P, "speedsansdep")); },
+    get speedvv() { return this._speedvv || (this._speedvv = construireGraphe(P, "speedvv")); },
+    get speedvvsansdep() { return this._speedvvsansdep || (this._speedvvsansdep = construireGraphe(P, "speedvvsansdep")); } });
   function preparerSimulation() {
     if (!vue.P || !sim.troncons.length) { vue.sim = null; sim.nonRaccordes = []; sim.isoles = []; sim.horsZone = []; return; }
     const r = ajouterTroncons(vue.P, sim.troncons);   // vue.P porte déjà le masque territoire et l'alias confort
@@ -1101,7 +1140,7 @@ document.getElementById("replier").addEventListener("click", e => {
     }
     const km2 = min ? surfaceKm2(vue.P, min, seuils) : seuils.map(() => 0);
     $("#couverture").innerHTML = seuils.map((s, i) => {
-      const disque = Math.PI * (20 * s / 60) ** 2, p = Math.min(100, Math.round(km2[i] / disque * 100));
+      const disque = Math.PI * (vitesseRef() * s / 60) ** 2, p = Math.min(100, Math.round(km2[i] / disque * 100));
       const valeur = km2[i].toLocaleString("fr-FR", { maximumFractionDigits: km2[i] < 10 ? 1 : 0 });
       return `<div class="ligne"><span>${s} min</span><span class="jauge"><span style="width:${p}%"></span></span><span class="valeur">${valeur} km²</span></div>`;
     }).join("");
@@ -1157,8 +1196,12 @@ document.getElementById("replier").addEventListener("click", e => {
     $("#duree").textContent = "Pas d'itinéraire";
     $("#detail").textContent = mode === "amenage"
       ? "Aucun itinéraire par les pistes et bandes entre ces deux points. Essayez le réseau « Avec les routes »."
-      : mode === "sansdep"
+      : reseauDe(mode) === "sansdep"
       ? "Aucun itinéraire sans départementale ni nationale entre ces deux points. Essayez le réseau « Avec les routes »."
+      : mode === "speed"
+      ? "Aucun itinéraire sur la chaussée entre ces deux points (pistes, voies vertes et chemins interdits au speedbike)."
+      : mode === "speedvv"
+      ? "Aucun itinéraire trouvé entre ces deux points."
       : "Aucun itinéraire trouvé entre ces deux points, ou l'arrivée est trop loin d'une voie praticable.";
   }
 
@@ -1205,7 +1248,7 @@ document.getElementById("replier").addEventListener("click", e => {
     // Départ : nœud accroché et, avec des tronçons simulés, aussi celui d'avant (une piste ne rallonge jamais un trajet)
     const acc = departs(s.P, Gm, lng, lat);
     if (!acc.length) return null;
-    const res = dijkstraRapide(Gm, s.P, sourcesDijkstra(acc), 0, LIMITE_S);   // graphe contracté, résultat redéplié
+    const res = dijkstraRapide(Gm, s.P, sourcesDijkstra(acc), 0, limiteS());   // graphe contracté, résultat redéplié
     // Trajet tranquille borné à 1,5 × 60 min (surcoût jusqu'à +50 %)
     const minConf = confortActif() ? minutesTranquilles(s.P, s.G.confort, lng, lat, LIMITE_S * CFG.confort.surcout[1]) : null;
     return { acc, res, minutes: tempsGrille(s.P, Gm, res), minConf };
@@ -1251,7 +1294,7 @@ document.getElementById("replier").addEventListener("click", e => {
       etat.res = null; etat.acc = null;
       dessinerChaleur(new Float32Array(g.nx * g.ny).map((_, k) => (g.dedans[k] ? Infinity : NaN)));
       iso.clearLayers(); maillons.clearLayers(); afficherCouverture(null); afficherGains(); afficherAcces(complet); dessinerEquipements();
-      afficherMessage(`Ce départ est à plus de ${CFG.accesMaxM[etat.mode]} m du réseau. Rapprochez le repère D d'une voie${etat.mode !== "tout" ? " ou passez au réseau « Avec les routes »" : ""}.`);
+      afficherMessage(`Ce départ est à plus de ${CFG.accesMaxM[etat.mode]} m du réseau. Rapprochez le repère D d'une voie${reseauDe(etat.mode) !== "tout" ? " ou passez au réseau « Avec les routes »" : ""}.`);
       majArrivee(complet); if (complet) majLien();
       return;
     }
@@ -2208,17 +2251,49 @@ document.getElementById("replier").addEventListener("click", e => {
   $("#suivre").addEventListener("click", () => suivre(!etat.suivre));
   $("#effacer").addEventListener("click", () => { etat.arrivee = null; marqueurArrivee.remove(); majArrivee(); majLien(); });
 
+  // Boutons Vélo / Speedbike et réseau d'après le mode ; speedbike : pas de « Sans les routes », et les onglets
+  // Confort, Simuler et Services (pistes, trajet tranquille, mesures précalculées) sont propres au vélo classique
+  function majBoutonsMode() {
+    const speed = estSpeed(etat.mode);
+    document.querySelectorAll("[data-velo]").forEach(b => b.setAttribute("aria-pressed", String((b.dataset.velo === "speed") === speed)));
+    document.querySelectorAll("[data-mode]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.mode === reseauDe(etat.mode))));
+    $('[data-mode="amenage"]').hidden = speed;
+    $("#case-vv").hidden = !speed;
+    $("#tolerer-vv").checked = tolereVV(etat.mode);
+    $(".bascule.reseau").style.gridTemplateColumns = speed ? "1fr 1fr" : "";
+    document.querySelectorAll('[data-onglet="2"],[data-onglet="3"],[data-onglet="4"]').forEach(b => {
+      b.disabled = speed;
+      b.title = speed ? "Réservé au vélo classique" : QUESTIONS[b.dataset.onglet];
+    });
+    $("#note-mode").textContent = NOTES[etat.mode];
+    majNoteCouverture();
+  }
   function choisirMode(mode) {
     etat.mode = mode;
-    document.querySelectorAll("[data-mode]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.mode === mode)));
-    $("#note-mode").textContent = NOTES[mode];
+    majBoutonsMode();
     majSymbo();
     if (etat.depart && vue.P) calculer(true);
   }
   document.querySelectorAll("[data-mode]").forEach(b => b.addEventListener("click", () => {
-    if (question === 1) modePortee = b.dataset.mode;          // retrouvé en revenant sur Portée (Confort impose les routes)
-    choisirMode(b.dataset.mode);
+    const mode = modeDe(b.dataset.mode, estSpeed(etat.mode) ? "speed" : "classique", tolereVV(etat.mode));
+    if (question === 1) modePortee = mode;                    // retrouvé en revenant sur Portée (Confort impose les routes)
+    choisirMode(mode);
   }));
+  document.querySelectorAll("[data-velo]").forEach(b => b.addEventListener("click", () => {
+    const reseau = reseauDe(etat.mode) === "amenage" ? "tout" : reseauDe(etat.mode);   // pas de pistes seules en speedbike
+    const mode = modeDe(reseau, b.dataset.velo);
+    if (mode === etat.mode) return;
+    if (b.dataset.velo === "speed") mesurer("speedbike");
+    modePortee = mode;
+    if (question !== 1) { allerA(1); return; }   // les autres onglets sont réservés au vélo classique ; allerA recalcule
+    choisirMode(mode);
+  }));
+  $("#tolerer-vv").addEventListener("change", ev => {
+    const mode = modeDe(reseauDe(etat.mode), "speed", ev.target.checked);
+    if (ev.target.checked) mesurer("speedbike-voies-vertes");
+    if (question === 1) modePortee = mode;
+    choisirMode(mode);
+  });
   // Bascule Temps / Temps et confort ; en mode pistes seules, seul « Temps » reste (pas de route à comparer)
   function majSymbo() {
     document.querySelectorAll("[data-symbo]").forEach(b => {
@@ -2407,7 +2482,8 @@ document.getElementById("replier").addEventListener("click", e => {
     // Onglet : q= ; lien en « Temps et confort » sans q= : onglet 2
     const q = Number(h.get("q")) || (symbo === "confort" ? 2 : 1);
     const crxLien = (h.get("x") || "").split(",").map(s => ["rd", "autres"].indexOf(s)).filter(c => c >= 0);
-    return { crx: crxLien, q: q >= 1 && q <= 4 ? q : 1, mode: ["amenage", "sansdep"].includes(h.get("m")) ? h.get("m") : "tout", symbo, depart: ll(h.get("d")), arrivee: ll(h.get("a")), suivi: h.get("s") === "1",
+    const mode = ["amenage", "sansdep", ...Object.keys(CFG.facteurVitesse)].includes(h.get("m")) ? h.get("m") : "tout";
+    return { crx: crxLien, q: q >= 1 && q <= 4 && (q === 1 || !estSpeed(mode)) ? q : 1, mode, symbo, depart: ll(h.get("d")), arrivee: ll(h.get("a")), suivi: h.get("s") === "1",
       troncons, tronconsIllisibles };
   }
   let minuteurPartage = null;
@@ -2451,8 +2527,7 @@ document.getElementById("replier").addEventListener("click", e => {
     } catch { sim.troncons = []; }
   }
   majSymbo();
-  document.querySelectorAll("[data-mode]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.mode === etat.mode)));
-  $("#note-mode").textContent = NOTES[etat.mode];
+  majBoutonsMode();
   if (lien.arrivee) { etat.arrivee = lien.arrivee; marqueurArrivee.setLatLng(lien.arrivee).addTo(carte); }
   etat.suivre = survolPossible && (!lien.depart || lien.suivi);
   // Territoire trop grand pour la vue d'ensemble (métropole ; Guyane, 84 000 km² dont seul le littoral est habité) : la
