@@ -320,7 +320,7 @@ dialog.apropos .fermer{position:absolute;top:10px;right:10px;width:34px;height:3
       <summary>Comment lire</summary>
       <p class="note" id="note-mode"></p>
       <div id="lire-confort" hidden>
-        <p class="note">Clarté = temps du trajet le plus rapide. Teinte = prix pour y aller tranquillement : trajet qui préfère pistes, bandes et voies calmes, chaque minute restante sur route exposée comptant pour 4 ; bleu = moins de 20 % (ou 1 min) de plus que le plus rapide, gris = 20 à 50 %, orange = plus de 50 %. Rampe bleu / orange lisible par les daltoniens.</p>
+        <p class="note">Clarté = temps du trajet le plus rapide. Teinte = prix pour y aller tranquillement : trajet qui préfère <span id="tranquille-voies">pistes, bandes et voies calmes</span>, chaque minute restante sur route exposée comptant pour <span id="facteur-confort">4</span> ; bleu = moins de 20 % (ou 1 min) de plus que le plus rapide, gris = 20 à 50 %, orange = plus de 50 %. Rampe bleu / orange lisible par les daltoniens.</p>
         <p class="note">Traits noirs : tronçons de route exposée par lesquels passent les trajets les plus rapides vers au moins 10 km² en orange (épaisseur : 10 / 25 / 60 km² desservis).</p>
       </div>
     </details>
@@ -1043,7 +1043,8 @@ document.getElementById("replier").addEventListener("click", e => {
   // Maquette : teinte = surcoût du trajet tranquille (minConf) sur le plus rapide (min) ; maillons manquants =
   // arcs exposés de l'arbre des plus courts chemins, pondérés par la surface sans alternative tranquille (orange)
   // Symbologie effective : le confort n'a de sens qu'en mode « Pistes + routes »
-  const confortActif = () => etat.symbo === "confort" && etat.mode === "tout";
+  const confortActif = () => etat.symbo === "confort" && etat.mode in CFG.modeConfort;
+  const grapheConfort = s => s.G[CFG.modeConfort[etat.mode]];   // graphe du trajet tranquille du réseau affiché
   function dessinerConfort(min, minConf, complet) {
     const { P, G: Gs } = aff(), G = Gs.tout, res = etat.res;
     // Couleur des cellules : teinte = surcoût du trajet tranquille (bleu / gris / orange), clarté = temps
@@ -1250,7 +1251,9 @@ document.getElementById("replier").addEventListener("click", e => {
     if (!acc.length) return null;
     const res = dijkstraRapide(Gm, s.P, sourcesDijkstra(acc), 0, limiteS());   // graphe contracté, résultat redéplié
     // Trajet tranquille borné à 1,5 × 60 min (surcoût jusqu'à +50 %)
-    const minConf = confortActif() ? minutesTranquilles(s.P, s.G.confort, lng, lat, LIMITE_S * CFG.confort.surcout[1]) : null;
+    // Speedbike : borné à 30 km à 32 km/h (marge de la fenêtre 7 × 7) au lieu de 1,5 × 45 min ; au-delà, cellule orange
+    const limConf = estSpeed(etat.mode) ? Math.min(LIMITE_SPEED_S * CFG.confort.surcout[1], 30 / 32 * 3600) : LIMITE_S * CFG.confort.surcout[1];
+    const minConf = confortActif() ? minutesTranquilles(s.P, grapheConfort(s), lng, lat, limConf) : null;
     return { acc, res, minutes: tempsGrille(s.P, Gm, res), minConf };
   }
 
@@ -1266,7 +1269,7 @@ document.getElementById("replier").addEventListener("click", e => {
       // Contraction de « tout » attendue du Worker : rien à faire ici (« confort » la reprendra à son arrivée)
       if (x.G.tout.rapideAttendu && !x.G.tout.rapide && !chargeur.secours) continue;
       aFaire.push([x.G[etat.mode], x.P]);
-      if (confortActif()) aFaire.push([x.G.confort, x.P]);
+      if (confortActif()) aFaire.push([grapheConfort(x), x.P]);
       if ($(".panneau").dataset.q === "4") aFaire.push([x.G.tout, x.P], [x.G.amenage, x.P], [x.G.confort, x.P]);   // Services : les trois mesures
     }
     if (aFaire.every(([G]) => G.rapide)) return;
@@ -2252,7 +2255,7 @@ document.getElementById("replier").addEventListener("click", e => {
   $("#effacer").addEventListener("click", () => { etat.arrivee = null; marqueurArrivee.remove(); majArrivee(); majLien(); });
 
   // Boutons Vélo / Speedbike et réseau d'après le mode ; speedbike : pas de « Sans les routes », et les onglets
-  // Confort, Simuler et Services (pistes, trajet tranquille, mesures précalculées) sont propres au vélo classique
+  // Simuler et Services (pistes simulées, mesures précalculées) sont propres au vélo classique ; Confort : route exposée ×2
   function majBoutonsMode() {
     const speed = estSpeed(etat.mode);
     document.querySelectorAll("[data-velo]").forEach(b => b.setAttribute("aria-pressed", String((b.dataset.velo === "speed") === speed)));
@@ -2261,11 +2264,13 @@ document.getElementById("replier").addEventListener("click", e => {
     $("#case-vv").hidden = !speed;
     $("#tolerer-vv").checked = tolereVV(etat.mode);
     $(".bascule.reseau").style.gridTemplateColumns = speed ? "1fr 1fr" : "";
-    document.querySelectorAll('[data-onglet="2"],[data-onglet="3"],[data-onglet="4"]').forEach(b => {
+    document.querySelectorAll('[data-onglet="3"],[data-onglet="4"]').forEach(b => {
       b.disabled = speed;
       b.title = speed ? "Réservé au vélo classique" : QUESTIONS[b.dataset.onglet];
     });
     $("#note-mode").textContent = NOTES[etat.mode];
+    $("#facteur-confort").textContent = speed ? "2" : "4";
+    $("#tranquille-voies").textContent = speed ? (tolereVV(etat.mode) ? "voies calmes, pistes et voies vertes" : "voies calmes") : "pistes, bandes et voies calmes";
     majNoteCouverture();
   }
   function choisirMode(mode) {
@@ -2280,12 +2285,12 @@ document.getElementById("replier").addEventListener("click", e => {
     choisirMode(mode);
   }));
   document.querySelectorAll("[data-velo]").forEach(b => b.addEventListener("click", () => {
-    const reseau = reseauDe(etat.mode) === "amenage" ? "tout" : reseauDe(etat.mode);   // pas de pistes seules en speedbike
+    const reseau = question === 2 || reseauDe(etat.mode) === "amenage" ? "tout" : reseauDe(etat.mode);   // Confort : réseau complet ; pas de pistes seules en speedbike
     const mode = modeDe(reseau, b.dataset.velo);
     if (mode === etat.mode) return;
     if (b.dataset.velo === "speed") mesurer("speedbike");
-    modePortee = mode;
-    if (question !== 1) { allerA(1); return; }   // les autres onglets sont réservés au vélo classique ; allerA recalcule
+    if (question !== 2) modePortee = mode;
+    if (question === 3 || question === 4) { allerA(1); return; }   // Simuler et Services : vélo classique seulement ; allerA recalcule
     choisirMode(mode);
   }));
   $("#tolerer-vv").addEventListener("change", ev => {
@@ -2293,13 +2298,13 @@ document.getElementById("replier").addEventListener("click", e => {
     if (ev.target.checked) mesurer("speedbike-voies-vertes");
     if (question === 1) modePortee = mode;
     choisirMode(mode);
-  });
+  });   // Confort : modeDe garde le réseau complet (reseauDe vaut « tout »)
   // Bascule Temps / Temps et confort ; en mode pistes seules, seul « Temps » reste (pas de route à comparer)
   function majSymbo() {
     document.querySelectorAll("[data-symbo]").forEach(b => {
       b.setAttribute("aria-pressed", String(b.dataset.symbo === (confortActif() ? "confort" : "vitesse")));   // symbologie réellement dessinée
     });
-    const seul = etat.mode !== "tout";                      // pistes seules ou sans départementales : bouton confort retiré, « Temps » sur toute la largeur
+    const seul = !(etat.mode in CFG.modeConfort);           // pistes seules ou sans départementales : bouton confort retiré, « Temps » sur toute la largeur
     $("[data-symbo=confort]").hidden = seul;
     $("#bascule-symbo").style.gridTemplateColumns = seul ? "1fr" : "";
     $("#legende-maquette").hidden = !confortActif();
@@ -2342,7 +2347,8 @@ document.getElementById("replier").addEventListener("click", e => {
       if (voie.actif) $("#sim-voie").click();
       if (sim.vue === "gain") $('[data-vue="apres"]').click();
     }
-    const mode = q === 2 ? "tout" : q === 1 && modePortee ? modePortee : etat.mode, symbo = q === 1 ? "vitesse" : q === 2 ? "confort" : etat.symbo;
+    const vel = estSpeed(etat.mode) ? "speed" : "classique";
+    const mode = q === 2 ? modeDe("tout", vel, tolereVV(etat.mode)) : q === 1 && modePortee ? modePortee : etat.mode, symbo = q === 1 ? "vitesse" : q === 2 ? "confort" : etat.symbo;
     if (mode !== etat.mode || symbo !== etat.symbo) { etat.symbo = symbo; choisirMode(mode); }   // un seul recalcul
     majLien();
   }
