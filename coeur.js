@@ -17,7 +17,27 @@ const CFG = {
     // Seules les traversées restent permises (CFG.traverseeDepMaxM) : la route est interdite, pas seulement
     // pénalisée, donc un hameau desservi par la seule départementale en est coupé (note sur Saint-Georges, index.html).
     sansdep: [1, 1, 1.05, 1.05, Infinity, 1.05, 1.05, 1.05],
+    // Speedbike (VAE jusqu'à 45 km/h, cyclomoteur au sens du Code de la route) : pistes et voies vertes (0) interdites,
+    // comme les chemins, sentiers et trottoirs (6, mêlés dans les tuiles) ; la classe 1 est la chaussée qui porte
+    // une bande : on y roule dans la voie de circulation. Tout se fait sur la route : pas de +5 %.
+    speed:        [Infinity, 1, 1, 1, 1, 1, Infinity, 1],
+    speedsansdep: [Infinity, 1, 1, 1, Infinity, 1, Infinity, 1],
+    // Speedbike « voies vertes tolérées » (option, interdit en principe) : pistes, voies vertes et chemins permis,
+    // +10 % (~29 km/h) car partagés avec piétons et cyclistes ; 30 % rallongeait de 4,5 min le trajet de contrôle
+    speedvv:        [1.1, 1, 1, 1, 1, 1, 1.1, 1],
+    speedvvsansdep: [1.1, 1, 1, 1, Infinity, 1, 1.1, 1],
+    // Trajet tranquille du speedbike : route exposée ×2 (×4 à vélo : à 32 km/h l'écart avec les voitures est moindre).
+    // ×2 retrouve 74 % du trajet de contrôle (Melesse → Noyal-sur-Vilaine), contre 38 % pour le plus rapide
+    speedconfort:   [Infinity, 1, 1, 2, 2, 1, Infinity, 2],
+    speedvvconfort: [1.1, 1, 1, 2, 2, 1, 1.1, 2],
   },
+  // Vitesse des tuiles (base 20 km/h) multipliée par mode : speedbike 32 km/h sur revêtement lisse, revêtements
+  // plus lents au même rapport. ponytail: ni zone 30 ni double sens cyclable (interdit au speedbike) dans les tuiles.
+  // Contrôle (22/10/2026) : trajet réel Melesse → Noyal-sur-Vilaine par le canal à Betton (trace GPX), 23,3 km en
+  // 45 min ; le modèle donne 45,4 min sur le même tracé : pas de temps par carrefour à ajouter
+  facteurVitesse: { speed: 1.6, speedsansdep: 1.6, speedvv: 1.6, speedvvsansdep: 1.6, speedconfort: 1.6, speedvvconfort: 1.6 },
+  // Graphe du trajet tranquille de chaque réseau qui a une teinte de confort
+  modeConfort: { tout: "confort", speed: "speedconfort", speedvv: "speedvvconfort" },
   // Confort par classe (option A figée le 11/10/2026) : 0 aménagé, 1 calme, 2 exposé, 3 très exposé ; voies
   // communales calmes malgré les 80 km/h possibles en rural. Teinte : bleu si le trajet tranquille coûte au plus
   // +20 % (ou +1 min) de plus que le plus rapide, gris jusqu'à +50 %, orange au-delà. Autour du départ
@@ -30,7 +50,8 @@ const CFG = {
   vitesseContreSensKmh: 5,             // sens unique pris à contre-sens : vélo poussé à pied, plutôt qu'interdit
   vitesseAccesKmh: 16,                 // accès au réseau hors voies (base vélo 20 km/h ×0,8)
   detourAcces: 1.3,
-  accesMaxM: { tout: 2000, amenage: 800, confort: 2000, sansdep: 800 },   // 2 km : couvre les marais de la Seudre, à 1,7 km de toute voie
+  accesMaxM: { tout: 2000, amenage: 800, confort: 2000, sansdep: 800, speed: 2000, speedsansdep: 800, speedvv: 2000, speedvvsansdep: 800,
+    speedconfort: 2000, speedvvconfort: 2000 },   // 2 km : couvre les marais de la Seudre, à 1,7 km de toute voie
                                        // sansdep : 800 m comme en mode pistes, sinon un bord de départementale serait « atteint » à travers champs
   // Sans départementales : traversée = enchaînement de départementale d'au plus traverseeDepMaxM entre deux accès
   // distincts au réseau permis (carrefour décalé, giratoire). 80 m : il en faut autant pour sortir du port du
@@ -97,23 +118,27 @@ function construireGraphe(P, mode) {
   // pistes, qu'OSM classe en route. Sans ça, le réseau de pistes est en miettes (Lyon : 4 nœuds atteints
   // depuis la mairie). Un seul segment au contact d'une piste : la règle ne se propage pas le long d'une route.
   // Mode sans départementales : même règle de traversée, sans les liaisons (réservées aux pistes).
-  const penCls = CFG.penalites[mode], penE = new Float32Array(m), restreint = mode === "amenage" || mode === "sansdep";
+  const sansDep = mode.endsWith("sansdep"), speed = mode in CFG.facteurVitesse;
+  const penCls = CFG.penalites[mode], penE = new Float32Array(m), restreint = mode === "amenage" || sansDep;
   // Sans départementales et nationales (17/10/2026) : RD (P.rd, bit 15) et nationales (P.nat, bit 14) interdites
-  const pen0 = mode === "sansdep" ? e => (P.rd[e] || (P.nat && P.nat[e]) ? Infinity : penCls[P.cls[e]]) : e => penCls[P.cls[e]];
+  const pen0 = sansDep ? e => (P.rd[e] || (P.nat && P.nat[e]) ? Infinity : penCls[P.cls[e]]) : e => penCls[P.cls[e]];
   let touche = null;
   if (restreint) {
     touche = new Uint8Array(n);
     for (let e = 0; e < m; e++) if (isFinite(pen0(e))) { touche[P.a[e]] = 1; touche[P.b[e]] = 1; }
   }
   const liaison = mode === "amenage" ? liaisons(P, touche)
-    : mode === "sansdep" ? liaisons(P, touche, CFG.traverseeDepMaxM, e => (isFinite(pen0(e)) ? 0 : 1))
+    : sansDep ? liaisons(P, touche, CFG.traverseeDepMaxM, e => (isFinite(pen0(e)) ? 0 : 1))
     : null;
+  // Traversées et liaisons : au coût du réseau complet du véhicule (speedbike : piste toujours interdite)
+  const penTraversee = CFG.penalites[speed ? mode.replace(/sansdep$/, "") : "tout"];
   for (let e = 0; e < m; e++) {
     let p = pen0(e);
     if (!isFinite(p) && touche && ((P.lm[e] < CFG.traverseeMaxM && (touche[P.a[e]] || touche[P.b[e]])) || (liaison && liaison[e])))
-      p = CFG.penalites.tout[P.cls[e]];
+      p = penTraversee[P.cls[e]];
     penE[e] = p;
   }
+  const fv = CFG.facteurVitesse[mode] || 1;
   const off = new Uint32Array(n + 1);
   for (let e = 0; e < m; e++) {
     if (!isFinite(penE[e])) continue;
@@ -127,7 +152,7 @@ function construireGraphe(P, mode) {
   for (let e = 0; e < m; e++) {
     const p = penE[e];
     if (!isFinite(p)) continue;
-    const s = P.lm[e] / (P.vit[e] / 3.6) * p, a = P.a[e], b = P.b[e];
+    const s = P.lm[e] / (P.vit[e] * fv / 3.6) * p, a = P.a[e], b = P.b[e];
     const pied = P.lm[e] / (CFG.vitesseContreSensKmh / 3.6);
     { const k = curseur[a]++; cible[k] = b; source[k] = a; poids[k] = P.sens[e] === 2 ? pied : s; arete[k] = e; }
     { const k = curseur[b]++; cible[k] = a; source[k] = b; poids[k] = P.sens[e] === 1 ? pied : s; arete[k] = e; }
@@ -137,8 +162,9 @@ function construireGraphe(P, mode) {
   // CFG.morceauMinM mètres ; sinon le départ tombe sur un bout de piste isolé à 50 m (Lyon : 7 nœuds)
   // alors que le vrai réseau (27 000 nœuds) est à 240 m. Mode tout : le graphe est déjà d'un seul tenant.
   // Sans départementales : même règle (une impasse coupée par la départementale n'est pas un départ).
+  // Speedbike : même règle (une rue reliée au reste par la seule piste n'est pas un départ).
   let accrochable = actif;
-  if (restreint) {
+  if (restreint || speed) {
     const parent = new Int32Array(n);
     for (let v = 0; v < n; v++) parent[v] = v;
     const racine = x => { while (parent[x] !== x) { parent[x] = parent[parent[x]]; x = parent[x]; } return x; };
@@ -149,14 +175,18 @@ function construireGraphe(P, mode) {
     for (let v = 0; v < n; v++) accrochable[v] = actif[v] && taille[racine(v)] >= CFG.morceauMinM ? 1 : 0;
   }
   const G = { mode, n, nArcs, off, cible, source, poids, arete, actif, accrochable };
-  if (mode === "sansdep" && !P.grille.pro.sansdep) rattacherGrille(P, G);
+  // Graphe tranquille : même réseau que son mode de base, donc même rattachement de la grille (la page pose aussi
+  // l'alias confort → tout sur sa fenêtre, mais pas sur le couloir d'un itinéraire lointain)
+  const base = Object.keys(CFG.modeConfort).find(b => CFG.modeConfort[b] === mode);
+  if (base && P.grille.pro[base] && !P.grille.pro[mode]) { P.grille.pro[mode] = P.grille.pro[base]; P.grille.dist[mode] = P.grille.dist[base]; }
+  if ((sansDep || speed) && !P.grille.pro[mode]) rattacherGrille(P, G);
   return G;
 }
 
-// Sans départementales : les tuiles ne donnent le nœud le plus proche de chaque cellule que pour « tout » et « pistes ».
-// On garde celui de « tout » quand il reste praticable ; sinon (nœud au milieu d'une départementale) on cherche, comme
-// accrocher, le plus proche nœud praticable parmi ceux des cellules voisines, à CFG.accesMaxM.sansdep au plus.
-// Écrit P.grille.pro.sansdep et dist.sansdep (une fois par fenêtre, à la construction du graphe).
+// Sans départementales et speedbike : les tuiles ne donnent le nœud le plus proche de chaque cellule que pour « tout »
+// et « pistes ». On garde celui de « tout » quand il reste praticable ; sinon (nœud au milieu d'une départementale, ou
+// sur une piste pour le speedbike) on cherche, comme accrocher, le plus proche nœud praticable parmi ceux des cellules
+// voisines, à CFG.accesMaxM[mode] au plus. Écrit P.grille.pro[mode] et dist[mode] (une fois par fenêtre).
 function rattacherGrille(P, G) {
   const g = P.grille, N = g.nx * g.ny, pro0 = g.pro.tout, d0 = g.dist.tout, max = CFG.accesMaxM[G.mode];
   const pro = pro0.slice(), dist = d0.slice();
@@ -183,7 +213,7 @@ function rattacherGrille(P, G) {
     }
     pro[k] = meilleur; dist[k] = meilleur < 0 ? Infinity : dMin;
   }
-  g.pro.sansdep = pro; g.dist.sansdep = dist;
+  g.pro[G.mode] = pro; g.dist[G.mode] = dist;
 }
 
 // Mode pistes : arêtes de voirie formant un chemin court (longueur pondérée par CFG.liaisonFacteur ≤ CFG.liaisonMaxM)
@@ -587,13 +617,16 @@ function minutesTranquilles(P, Gc, lon, lat, limiteS) {
   const r = CFG.confort.departLibreM, dLat = r / 111000, dLon = dLat / Math.cos(lat * RAD);
   const proche = v => Math.abs(P.lat[v] - lat) < dLat && Math.abs(P.lon[v] - lon) < dLon && distanceM(lon, lat, P.lon[v], P.lat[v]) <= r;
   const libres = [], sauves = [];
+  // Réseau de base du graphe tranquille (confort → tout, speedconfort → speed…) : son coût autour du départ
+  const penBase = CFG.penalites[Object.keys(CFG.modeConfort).find(b => CFG.modeConfort[b] === Gc.mode) || "tout"];
+  const penC = CFG.penalites[Gc.mode] || CFG.penalites.confort;
   for (let v = 0; v < P.n; v++) {          // nœuds proches d'abord (bien moins nombreux que les arcs), puis leurs arcs
     if (!proche(v)) continue;
     for (let k = Gc.off[v]; k < Gc.off[v + 1]; k++) {
       const c = P.cls[Gc.arete[k]];
       if (expose(c) && proche(Gc.cible[k])) {
         libres.push(k); sauves.push(Gc.poids[k]);
-        Gc.poids[k] *= CFG.penalites.tout[c] / CFG.penalites.confort[c];
+        Gc.poids[k] *= penBase[c] / penC[c];
       }
     }
   }
@@ -602,6 +635,14 @@ function minutesTranquilles(P, Gc, lon, lat, limiteS) {
   libres.forEach((k, i) => { Gc.poids[k] = sauves[i]; });   // valeurs d'origine (une division dériverait en Float32)
   ajusterContracte(Gc, libres);
   return min;
+}
+
+// Temps réels (secondes) des arcs d'un graphe tranquille : pénalité de confort remplacée par celle de son réseau
+// de base (confort → tout, speedconfort → speed…), pour donner la durée d'un itinéraire tranquille
+function poidsReels(P, Gc) {
+  const base = Object.keys(CFG.modeConfort).find(b => CFG.modeConfort[b] === Gc.mode) || "tout";
+  const penBase = CFG.penalites[base], penC = CFG.penalites[Gc.mode] || CFG.penalites.confort;
+  return Gc.poids.map((w, k) => { const c = P.cls[Gc.arete[k]]; return w * penBase[c] / penC[c]; });
 }
 
 // Teinte de confort d'une cellule : 0 bleu (tranquille), 1 gris, 2 orange, d'après le temps le plus rapide m et
@@ -617,7 +658,7 @@ function teinteConfort(m, mc) {
 // un départ, partagée avec maillons.js (D4, 12/10/2026). Rend [{ arc, charge (km²) }], distances croissantes.
 const CELLULE_KM2 = 0.0097;          // cellule de la grille France : 0,00125° × 0,0009° ≈ 97 m × 100 m
 function traitsNoirs(P, G, res, min, minConf, minutesMax = 60, seuilKm2 = 10) {
-  const pro = P.grille.pro.tout, charge = new Float32Array(P.n);
+  const pro = P.grille.pro[G.mode] || P.grille.pro.tout, charge = new Float32Array(P.n);
   for (let k = 0; k < min.length; k++) {
     const m = min[k];
     if (!(m <= minutesMax)) continue;
@@ -1152,8 +1193,8 @@ function ajouterTroncons(P, troncons) {
   };
   if (P.global) Q.global = etendre(Float64Array, P.global, rempli(dn, -1));
   const g = P.grille, pro = {}, dist = {};
-  for (const mode of ["tout", "amenage", "sansdep"]) {
-    if (!g.pro[mode]) continue;              // sansdep : calculé seulement si le mode a servi (rattacherGrille)
+  for (const mode of ["tout", "amenage", "sansdep", ...Object.keys(CFG.facteurVitesse)]) {
+    if (!g.pro[mode]) continue;              // sansdep, speed… : calculé seulement si le mode a servi (rattacherGrille)
     pro[mode] = g.pro[mode].slice(); dist[mode] = g.dist[mode].slice();
     for (const v of relies) rattacher(g, pro[mode], dist[mode], v, Q.lon[v], Q.lat[v], CFG.accesMaxM[mode]);
   }
@@ -1546,7 +1587,7 @@ function equipementsFenetre(Cm, ix, g, minutes, compte) {
 }
 
 if (typeof module !== "undefined") {
-  module.exports = { CFG, preparer, construireGraphe, lignesReseau, expose, minutesTranquilles, teinteConfort, CELLULE_KM2, traitsNoirs, grilleDeparts, cumulerMaillons, dijkstra, accrocher, rattacherGrille, tempsGrille, itineraire, etapes, couverture, champIsolignes, accesSecondes, distanceM,
+  module.exports = { CFG, preparer, construireGraphe, lignesReseau, expose, minutesTranquilles, poidsReels, teinteConfort, CELLULE_KM2, traitsNoirs, grilleDeparts, cumulerMaillons, dijkstra, accrocher, rattacherGrille, tempsGrille, itineraire, etapes, couverture, champIsolignes, accesSecondes, distanceM,
     surfaceKm2, GRILLE_FRANCE, definirGrille, contracter, dijkstraRapide, graphRapide, ajusterContracte, emballerLignes, deballerLignes, l93VersWgs84, encoderTroncons, decoderTroncons, lireGeoJSON, versGeoJSON, longueurTroncon, noeudsProches, areteProche, aretesProches, croisements, voies, voieAuClic, decoderMasque, appliquerMasque, ajouterTroncons, gainSurface, gainConfort, departs, sourcesDijkstra, decompresserTuile, decoderTuile, recollerTuiles, ChargeurTuiles,
     preparerComptages, indexerComptages, compterAtteints, plusProcheParFonction, casFonctions, CAS, equipementsFenetre, minutesAcces };
 }
